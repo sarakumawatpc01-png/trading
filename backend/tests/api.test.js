@@ -96,9 +96,10 @@ test('seeds baseline specs for all 23 agents and supports bulk spec updates', as
 
   const seededSpecRes = await request(app).get('/api/agents/A23_MarketScanner/spec');
   assert.equal(seededSpecRes.status, 200);
-  assert.ok(seededSpecRes.body.instruction.includes('Baseline A23_MarketScanner'));
-  assert.ok(seededSpecRes.body.knowledge.includes('Baseline knowledge v1'));
-  assert.equal(seededSpecRes.body.skill.profileVersion, 'v1');
+  assert.ok(seededSpecRes.body.instruction.includes('Specialist A23_MarketScanner'));
+  assert.ok(seededSpecRes.body.knowledge.includes('Knowledge v2'));
+  assert.equal(seededSpecRes.body.skill.profileVersion, 'v2');
+  assert.equal(seededSpecRes.body.skill.domain, 'market_scanner');
 
   const bulkRes = await request(app)
     .post('/api/agents/specs/bulk')
@@ -113,7 +114,7 @@ test('seeds baseline specs for all 23 agents and supports bulk spec updates', as
   assert.equal(bulkRes.body.updated, 2);
   assert.equal(bulkRes.body.specs.A1_MarketStructure.instruction, 'Focus on structure shift');
   assert.equal(bulkRes.body.specs.A1_MarketStructure.skill.model, 'rule-v2');
-  assert.equal(bulkRes.body.specs.A1_MarketStructure.skill.profileVersion, 'v1');
+  assert.equal(bulkRes.body.specs.A1_MarketStructure.skill.profileVersion, 'v2');
   assert.equal(bulkRes.body.specs.A2_KeyLevels.knowledge, 'Use HTF+LTF confluence');
   assert.equal(bulkRes.body.specs.A2_KeyLevels.skill.confidenceFloor, 0.55);
 });

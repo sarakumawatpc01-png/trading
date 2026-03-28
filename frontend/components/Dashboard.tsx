@@ -7,6 +7,9 @@ type Setup = { id: string; symbol: string; decision: string; confidence: number;
 type Signal = { id: string; symbol: string; action: string; reason: string; createdAt: string };
 type Log = { id: string; level: string; message: string; context: Record<string, unknown>; createdAt: string };
 type AgentOutput = { id: string; agent: string; symbol: string; score: number; summary: string; createdAt: string };
+type PaperTrade = { id: string; setupId: string; symbol: string; status: 'OPEN' | 'CLOSED'; pnl?: number; createdAt: string };
+type PaperPortfolio = { balance: number; initialCapital: number; realizedPnl: number; openTrades: number };
+const PERCENT_SCALE = 100;
 
 type Config = {
   brainInstructions: string;
@@ -19,24 +22,30 @@ export default function Dashboard() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutput[]>([]);
+  const [paperTrades, setPaperTrades] = useState<PaperTrade[]>([]);
+  const [paperPortfolio, setPaperPortfolio] = useState<PaperPortfolio | null>(null);
   const [query, setQuery] = useState('Analyze RELIANCE');
   const [manualSymbol, setManualSymbol] = useState('RELIANCE');
   const [config, setConfig] = useState<Config | null>(null);
   const [instruction, setInstruction] = useState('');
 
   const load = async () => {
-    const [s1, s2, s3, s4, c] = await Promise.all([
+    const [s1, s2, s3, s4, c, trades, portfolio] = await Promise.all([
       apiGet<Setup[]>('/setups'),
       apiGet<Signal[]>('/signals'),
       apiGet<Log[]>('/logs'),
       apiGet<AgentOutput[]>('/agent-outputs'),
-      apiGet<Config>('/admin/config')
+      apiGet<Config>('/admin/config'),
+      apiGet<PaperTrade[]>('/paper/trades'),
+      apiGet<PaperPortfolio>('/paper/portfolio')
     ]);
     setSetups(s1);
     setSignals(s2);
     setLogs(s3);
     setAgentOutputs(s4);
     setConfig(c);
+    setPaperTrades(trades);
+    setPaperPortfolio(portfolio);
     setInstruction(c.brainInstructions || '');
   };
 
@@ -49,6 +58,10 @@ export default function Dashboard() {
   }, []);
 
   const topAgents = useMemo(() => agentOutputs.slice(0, 12), [agentOutputs]);
+  const paperTakenCount = useMemo(() => paperTrades.length, [paperTrades]);
+  const paperClosed = useMemo(() => paperTrades.filter((t) => t.status === 'CLOSED'), [paperTrades]);
+  const paperWins = useMemo(() => paperClosed.filter((t) => Number(t.pnl || 0) > 0).length, [paperClosed]);
+  const paperHitRate = useMemo(() => (paperClosed.length ? (paperWins / paperClosed.length) * PERCENT_SCALE : 0), [paperClosed, paperWins]);
   const formatInr = useMemo(
     () => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }),
     []
@@ -103,6 +116,11 @@ export default function Dashboard() {
           <div className="text-sm space-y-2">
             <p>Signals generated: {signals.length}</p>
             <p>Recent logs: {logs.length}</p>
+            <p>Paper setups taken: {paperTakenCount}</p>
+            <p>Paper closed trades: {paperClosed.length} · Hit rate: {paperHitRate.toFixed(1)}%</p>
+            {paperPortfolio && (
+              <p>Paper PnL: {safeFormatInr(paperPortfolio.realizedPnl)} · Balance: {safeFormatInr(paperPortfolio.balance)}</p>
+            )}
             <div className="pt-2 flex gap-2">
               <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={manualSymbol} onChange={(e) => setManualSymbol(e.target.value.toUpperCase())} />
               <button className="px-4 py-2 rounded bg-sky-500" onClick={async () => { await apiPost('/admin/manual-analysis', { symbol: manualSymbol, price: 120 }); }}>Trigger Analysis</button>
