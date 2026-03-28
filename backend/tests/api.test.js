@@ -178,3 +178,53 @@ test('triggers drawdown kill-switch and emits risk event', async () => {
   assert.equal(riskRes.status, 200);
   assert.ok(riskRes.body.some((x) => x.eventType === 'DRAWDOWN_KILL_SWITCH'));
 });
+
+test('applies event calendar for regime tagging and exposes causal attribution fields', async () => {
+  const { app } = buildApp();
+  const today = new Date().toISOString().slice(0, 10);
+  const patchRes = await request(app).patch('/api/admin/config').send({
+    eventCalendar: [
+      { id: 'rel-event', title: 'RELIANCE Event', date: today, symbols: ['RELIANCE.NS'], impact: 'HIGH' }
+    ]
+  });
+  assert.equal(patchRes.status, 200);
+
+  await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 });
+  await new Promise((r) => setTimeout(r, 40));
+
+  const setupsRes = await request(app).get('/api/setups');
+  assert.equal(setupsRes.status, 200);
+  assert.ok(setupsRes.body.length >= 1);
+  assert.equal(setupsRes.body[0].regime.eventDay, 'EVENT');
+  assert.equal(setupsRes.body[0].regime.eventName, 'RELIANCE Event');
+
+  const outcomeRes = await request(app)
+    .post(`/api/setups/${setupsRes.body[0].id}/outcome`)
+    .send({ exitPrice: 105, quantity: 1, exitReason: 'target_hit' });
+  assert.equal(outcomeRes.status, 201);
+
+  const contribRes = await request(app).get('/api/admin/agent-contribution-metrics?symbol=RELIANCE');
+  assert.equal(contribRes.status, 200);
+  assert.ok(contribRes.body.length > 0);
+  assert.ok(Object.prototype.hasOwnProperty.call(contribRes.body[0], 'weightedExposure'));
+  assert.ok(Object.prototype.hasOwnProperty.call(contribRes.body[0], 'causalZScore'));
+});
+
+test('batch-actions rollback all changes on failure', async () => {
+  const { app } = buildApp();
+  const beforeConfig = await request(app).get('/api/admin/config');
+  assert.equal(beforeConfig.status, 200);
+  const baselineMinWinRate = beforeConfig.body.minWinRate;
+
+  const batchRes = await request(app).post('/api/admin/batch-actions').send({
+    actions: [
+      { type: 'patchConfig', payload: { minWinRate: 0.6 } },
+      { type: 'patchAgentSpec', payload: { partial: { instruction: 'should fail without name' } } }
+    ]
+  });
+  assert.equal(batchRes.status, 400);
+
+  const afterConfig = await request(app).get('/api/admin/config');
+  assert.equal(afterConfig.status, 200);
+  assert.equal(afterConfig.body.minWinRate, baselineMinWinRate);
+});

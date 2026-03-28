@@ -363,8 +363,8 @@ export default function Dashboard() {
         <div className="card">
           <h2 className="font-semibold mb-3">Signal Effectiveness ({manualSymbol})</h2>
           <div className="space-y-2 max-h-64 overflow-auto text-xs">
-            {signalEffectiveness.slice(0, 12).map((row, index) => (
-              <div key={`${row.symbol}-${row.decision}-${row.trendState}-${index}`} className="border border-slate-700 rounded p-2">
+            {signalEffectiveness.slice(0, 12).map((row) => (
+              <div key={`${row.symbol}-${row.decision}-${row.trendState}-${row.volBucket}-${row.eventDay}-${row.sampleSize}`} className="border border-slate-700 rounded p-2">
                 <div>{row.symbol} · {row.decision}</div>
                 <div className="text-slate-300">{row.trendState}/{row.volBucket}/{row.eventDay} · n={row.sampleSize} · hit {(row.hitRate * 100).toFixed(1)}% · exp {row.expectancy.toFixed(2)}</div>
               </div>

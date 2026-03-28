@@ -1,3 +1,5 @@
+import { getEventDayTag } from './eventCalendar.js';
+
 const DISAGREEMENT_THRESHOLD = 2.8;
 const TAKE_THRESHOLD = 6.2;
 const SKIP_THRESHOLD = 3.8;
@@ -21,7 +23,7 @@ const TREND_RANGE_THRESHOLD = 4.5;
 const HIGH_VOL_STDEV_THRESHOLD = 2.5;
 const NORMAL_VOL_STDEV_THRESHOLD = 1.5;
 
-function detectRegime({ avg, stdev, triggerContext = {} }) {
+function detectRegime({ symbol, avg, stdev, triggerContext = {}, eventCalendar = [] }) {
   let trendState = 'RANGE';
   if (avg >= TREND_STRONG_THRESHOLD) trendState = 'STRONG_TREND';
   else if (avg >= TREND_WEAK_THRESHOLD) trendState = 'WEAK_TREND';
@@ -32,9 +34,12 @@ function detectRegime({ avg, stdev, triggerContext = {} }) {
   else if (stdev <= NORMAL_VOL_STDEV_THRESHOLD) volBucket = 'LOW_VOL';
 
   const source = String(triggerContext.source || '').toLowerCase();
-  const eventDay = source.includes('news') ? 'EVENT' : source.includes('upload') ? 'PRE_EVENT' : 'NORMAL';
+  const timestampMs = Number(triggerContext?.triggeredAtMs || Date.now());
+  const eventTag = getEventDayTag({ symbol, timestampMs, calendar: eventCalendar });
+  const sourceFallback = source.includes('news') ? 'EVENT' : source.includes('upload') ? 'PRE_EVENT' : 'NORMAL';
+  const eventDay = eventTag.eventDay === 'NORMAL' ? sourceFallback : eventTag.eventDay;
 
-  return { trendState, volBucket, eventDay };
+  return { trendState, volBucket, eventDay, eventName: eventTag.event?.title || null, eventImpact: eventTag.event?.impact || null };
 }
 
 export class BrainService {
@@ -113,7 +118,8 @@ export class BrainService {
       decisionReason = 'confidence_decay_gate';
     }
 
-    const regime = detectRegime({ avg, stdev, triggerContext });
+    const eventCalendar = Array.isArray(config.eventCalendar) ? config.eventCalendar : [];
+    const regime = detectRegime({ symbol, avg, stdev, triggerContext, eventCalendar });
 
     const setup = {
       runId,

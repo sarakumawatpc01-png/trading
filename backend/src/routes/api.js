@@ -113,14 +113,18 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     } catch (err) { next(err); }
   });
 
+  const batchActionSchema = z.object({
+    actions: z.array(z.object({
+      type: z.enum(['patchConfig', 'reweightAgents', 'patchAgentSpec']),
+      payload: z.record(z.any())
+    })).min(1).max(100)
+  });
+
   router.post('/admin/batch-actions', async (req, res, next) => {
+    let snapshot = null;
     try {
-      const body = z.object({
-        actions: z.array(z.object({
-          type: z.enum(['patchConfig', 'reweightAgents', 'patchAgentSpec']),
-          payload: z.record(z.any())
-        })).min(1).max(100)
-      }).parse(req.body || {});
+      const body = batchActionSchema.parse(req.body || {});
+      snapshot = store.snapshotState ? store.snapshotState() : null;
       const results = [];
       for (const action of body.actions) {
         if (action.type === 'patchConfig') {
@@ -140,7 +144,15 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       }
       await logger.log('info', 'Batch actions executed', { count: body.actions.length });
       res.json({ ok: true, executed: body.actions.length, results });
-    } catch (err) { next(err); }
+    } catch (err) {
+      if (snapshot && store.restoreState) {
+        try {
+          store.restoreState(snapshot);
+          await logger.log('warn', 'Batch actions rolled back after failure', { error: err.message });
+        } catch (_ignored) {}
+      }
+      next(err);
+    }
   });
 
   router.post('/admin/manual-analysis', async (req, res, next) => {

@@ -2,6 +2,7 @@ import { uid } from '../utils/id.js';
 import { INDIA_TIME_ZONE } from '../utils/marketHours.js';
 import { normalizeIndianSymbol } from '../utils/symbol.js';
 import { createDefaultAgentSpecs } from '../services/agentCatalog.js';
+import { DEFAULT_EVENT_CALENDAR, normalizeCalendarEvent } from '../services/eventCalendar.js';
 
 // sv-SE provides stable YYYY-MM-DD HH:mm:ss ordering; we convert it to an IST-local timestamp shape.
 const nowIstLocal = () => new Date().toLocaleString('sv-SE', { timeZone: INDIA_TIME_ZONE }).replace(' ', 'T');
@@ -37,6 +38,10 @@ function isWithinDays(createdAt, days) {
   if (!Number.isFinite(timestamp)) return true;
   const ageMs = Date.now() - timestamp;
   return ageMs <= days * 24 * 60 * 60 * 1000;
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 export class InMemoryStore {
@@ -76,6 +81,7 @@ export class InMemoryStore {
         feeBps: DEFAULT_PAPER_FEE_BPS,
         latencyMs: DEFAULT_PAPER_LATENCY_MS
       },
+      eventCalendar: DEFAULT_EVENT_CALENDAR.map((event) => normalizeCalendarEvent(event)),
       prefilterConfig: {
         momentumModulus: 10,
         volumeModulus: 7,
@@ -191,6 +197,12 @@ export class InMemoryStore {
         return null;
     }
   }
+  normalizeEventCalendar(events = []) {
+    if (!Array.isArray(events)) return [];
+    return events
+      .map((event) => normalizeCalendarEvent(event))
+      .filter((event) => event.id && event.date);
+  }
   getConfigSchema() {
     return {
       minWinRate: { min: 0, max: 1 },
@@ -201,6 +213,9 @@ export class InMemoryStore {
         slippageBps: { min: 0, max: 100 },
         feeBps: { min: 0, max: 100 },
         latencyMs: { min: 0, max: 10000 }
+      },
+      eventCalendar: {
+        item: { required: ['id', 'title', 'date'], optional: ['symbols', 'impact'] }
       }
     };
   }
@@ -229,7 +244,10 @@ export class InMemoryStore {
       agentWeights: { ...this.systemConfig.agentWeights, ...(partial.agentWeights || {}) },
       stockOverrides: { ...this.systemConfig.stockOverrides, ...(partial.stockOverrides || {}) },
       prefilterConfig: { ...this.systemConfig.prefilterConfig, ...(partial.prefilterConfig || {}) },
-      paperExecution: { ...this.systemConfig.paperExecution, ...(partial.paperExecution || {}) }
+      paperExecution: { ...this.systemConfig.paperExecution, ...(partial.paperExecution || {}) },
+      eventCalendar: partial.eventCalendar !== undefined
+        ? this.normalizeEventCalendar(partial.eventCalendar)
+        : this.systemConfig.eventCalendar
     };
     if (partial.paperInitialCapital && typeof partial.paperInitialCapital === 'number') {
       this.paperPortfolio.initialCapital = partial.paperInitialCapital;
@@ -352,9 +370,23 @@ export class InMemoryStore {
       outcomesByRun.set(outcome.runId, current);
     }
     const metrics = new Map();
+    const rawContributions = [];
     for (const audit of audits) {
       const relatedOutcomes = outcomesByRun.get(audit.runId) || [];
       const realizedPnl = relatedOutcomes.reduce((acc, row) => acc + Number(row.pnl || 0), 0);
+      const decisionFactor = audit.decision === 'TAKE' ? 1 : audit.decision === 'SKIP' ? -0.5 : 0.25;
+      const voteRows = (audit.agentVotes || []).map((vote) => ({
+        agent: vote.agent,
+        score: Number(vote.score || 0),
+        directionalScore: (Number(vote.score || 0) - 5) / 5
+      }));
+      const directionalMean = voteRows.length
+        ? voteRows.reduce((acc, vote) => acc + vote.directionalScore, 0) / voteRows.length
+        : 0;
+      const directionalVariance = voteRows.length
+        ? voteRows.reduce((acc, vote) => acc + (vote.directionalScore - directionalMean) ** 2, 0) / voteRows.length
+        : 0;
+      const directionalScale = Math.sqrt(Math.max(directionalVariance, 0));
       for (const vote of audit.agentVotes || []) {
         if (agent && vote.agent !== agent) continue;
         const item = metrics.get(vote.agent) || {
@@ -364,6 +396,8 @@ export class InMemoryStore {
           wins: 0,
           losses: 0,
           avgScore: 0,
+          weightedExposure: 0,
+          weightedVariance: 0,
           contributionScore: 0,
           realizedPnl: 0
         };
@@ -374,18 +408,36 @@ export class InMemoryStore {
           item.realizedPnl += realizedPnl;
           if (realizedPnl > 0) item.wins += 1;
           if (realizedPnl < 0) item.losses += 1;
-          const decisionFactor = audit.decision === 'TAKE' ? 1 : audit.decision === 'SKIP' ? -0.5 : 0.25;
           const directionalScore = (Number(vote.score || 0) - 5) / 5;
-          item.contributionScore += directionalScore * decisionFactor * realizedPnl;
+          const idioExposure = directionalScore - directionalMean;
+          const variancePenalty = 1 / (1 + directionalScale);
+          const causalWeight = idioExposure * variancePenalty * decisionFactor;
+          const weightedPnl = causalWeight * realizedPnl;
+          item.weightedExposure += causalWeight;
+          item.weightedVariance += Math.abs(idioExposure);
+          item.contributionScore += weightedPnl;
+          rawContributions.push(weightedPnl);
         }
         metrics.set(vote.agent, item);
       }
     }
+    const baselineMean = rawContributions.length
+      ? rawContributions.reduce((acc, value) => acc + value, 0) / rawContributions.length
+      : 0;
+    const baselineVariance = rawContributions.length
+      ? rawContributions.reduce((acc, value) => acc + (value - baselineMean) ** 2, 0) / rawContributions.length
+      : 0;
+    const baselineStdDev = Math.sqrt(Math.max(0, baselineVariance));
     return [...metrics.values()]
       .map((row) => ({
         ...row,
         avgScore: Number((row.avgScore / Math.max(row.sampleSize, 1)).toFixed(3)),
         hitRate: row.resolvedSampleSize ? Number((row.wins / row.resolvedSampleSize).toFixed(4)) : 0,
+        weightedExposure: Number(row.weightedExposure.toFixed(4)),
+        weightedVariance: Number((row.weightedVariance / Math.max(1, row.resolvedSampleSize)).toFixed(4)),
+        causalZScore: baselineStdDev > 0
+          ? Number(((row.contributionScore - baselineMean) / baselineStdDev).toFixed(4))
+          : 0,
         contributionScore: Number(row.contributionScore.toFixed(3)),
         realizedPnl: Number(row.realizedPnl.toFixed(2))
       }))
@@ -557,6 +609,48 @@ export class InMemoryStore {
       minSampleMet,
       warnings
     };
+  }
+
+  snapshotState() {
+    return {
+      stocks: cloneJson(this.stocks),
+      signals: cloneJson(this.signals),
+      setups: cloneJson(this.setups),
+      setupById: new Map(this.setupById),
+      setupsBySymbol: new Map([...this.setupsBySymbol.entries()].map(([key, rows]) => [key, cloneJson(rows)])),
+      agentOutputs: cloneJson(this.agentOutputs),
+      agentSpecs: cloneJson(this.agentSpecs),
+      outcomes: cloneJson(this.outcomes),
+      backtests: cloneJson(this.backtests),
+      driftLogs: cloneJson(this.driftLogs),
+      decisionAudits: cloneJson(this.decisionAudits),
+      riskEvents: cloneJson(this.riskEvents),
+      paperTrades: cloneJson(this.paperTrades),
+      logs: cloneJson(this.logs),
+      systemConfig: cloneJson(this.systemConfig),
+      paperPortfolio: cloneJson(this.paperPortfolio),
+      health: cloneJson(this.health)
+    };
+  }
+
+  restoreState(snapshot) {
+    this.stocks = cloneJson(snapshot.stocks || []);
+    this.signals = cloneJson(snapshot.signals || []);
+    this.setups = cloneJson(snapshot.setups || []);
+    this.setupById = new Map(snapshot.setupById || []);
+    this.setupsBySymbol = new Map(snapshot.setupsBySymbol || []);
+    this.agentOutputs = cloneJson(snapshot.agentOutputs || []);
+    this.agentSpecs = cloneJson(snapshot.agentSpecs || {});
+    this.outcomes = cloneJson(snapshot.outcomes || []);
+    this.backtests = cloneJson(snapshot.backtests || []);
+    this.driftLogs = cloneJson(snapshot.driftLogs || []);
+    this.decisionAudits = cloneJson(snapshot.decisionAudits || []);
+    this.riskEvents = cloneJson(snapshot.riskEvents || []);
+    this.paperTrades = cloneJson(snapshot.paperTrades || []);
+    this.logs = cloneJson(snapshot.logs || []);
+    this.systemConfig = cloneJson(snapshot.systemConfig || {});
+    this.paperPortfolio = cloneJson(snapshot.paperPortfolio || {});
+    this.health = cloneJson(snapshot.health || {});
   }
 
   defaultAgentWeight() {
