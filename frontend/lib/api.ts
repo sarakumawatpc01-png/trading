@@ -34,6 +34,7 @@ export class DebouncedConfigWriter {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: PatchQueue = {};
   private readonly delayMs: number;
+  private waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
 
   constructor(delayMs = DEFAULT_DEBOUNCE_MS) {
     this.delayMs = delayMs;
@@ -43,13 +44,23 @@ export class DebouncedConfigWriter {
     this.pending = { ...this.pending, ...partial };
     if (this.timer) clearTimeout(this.timer);
     return new Promise((resolve, reject) => {
+      this.waiters.push({ resolve, reject });
       this.timer = setTimeout(async () => {
         try {
-          await apiPatch('/admin/config', this.pending);
+          const payload = this.pending;
           this.pending = {};
-          resolve();
+          await apiPatch('/admin/config', payload);
+          const currentWaiters = this.waiters;
+          this.waiters = [];
+          currentWaiters.forEach((waiter) => waiter.resolve());
+          return;
         } catch (error) {
-          reject(error);
+          const currentWaiters = this.waiters;
+          this.waiters = [];
+          currentWaiters.forEach((waiter) => waiter.reject(error));
+        } finally {
+          this.pending = {};
+          this.timer = null;
         }
       }, this.delayMs);
     });

@@ -181,7 +181,7 @@ export class InMemoryStore {
       case 'setupConfidenceDecayHours':
         return validateRange(1, 24) ? null : `${key} must be between 1 and 24`;
       case 'autoShutdownDrawdownPercent':
-        return validateRange(5, 100) ? null : `${key} must be between 5 and 100`;
+        return validateRange(0, 100) ? null : `${key} must be between 0 and 100`;
       case 'paperExecution.slippageBps':
       case 'paperExecution.feeBps':
         return validateRange(0, 100) ? null : `${key} must be between 0 and 100`;
@@ -196,7 +196,7 @@ export class InMemoryStore {
       minWinRate: { min: 0, max: 1 },
       minSymbolWinRateForTake: { min: 0, max: 1 },
       setupConfidenceDecayHours: { min: 1, max: 24 },
-      autoShutdownDrawdownPercent: { min: 5, max: 100 },
+      autoShutdownDrawdownPercent: { min: 0, max: 100 },
       paperExecution: {
         slippageBps: { min: 0, max: 100 },
         feeBps: { min: 0, max: 100 },

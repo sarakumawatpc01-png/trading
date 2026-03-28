@@ -56,6 +56,11 @@ type Config = {
   paperModeEnabled?: boolean;
   paperInitialCapital?: number;
   autoShutdownDrawdownPercent?: number;
+  paperExecution?: {
+    slippageBps?: number;
+    feeBps?: number;
+    latencyMs?: number;
+  };
   setupConfidenceDecayHours?: number;
   stockOverrides?: Record<string, { slMultiplier?: number; targetFactors?: number[] }>;
   prefilterConfig?: {
@@ -429,7 +434,7 @@ export default function Dashboard() {
             <div className="space-y-2">
               <h3 className="font-medium">Controls</h3>
               <button className="px-4 py-2 rounded bg-emerald-600 mr-2" onClick={async () => runAction(async () => {
-                setConfig({ ...config, forceOverrideDisagreement: !config.forceOverrideDisagreement });
+                setConfig((prev) => (prev ? { ...prev, forceOverrideDisagreement: !prev.forceOverrideDisagreement } : prev));
                 await apiPatch('/admin/config', { forceOverrideDisagreement: !config.forceOverrideDisagreement });
                 await load();
               }, 'Disagreement override updated.', 'Failed to update disagreement override.')}>
@@ -437,7 +442,7 @@ export default function Dashboard() {
               </button>
               <button className="px-4 py-2 rounded bg-cyan-600 mr-2" onClick={async () => runAction(async () => {
                 const nextMode = config.autoReweightMode === 'winrate-percentile' ? 'drift' : 'winrate-percentile';
-                setConfig({ ...config, autoReweightMode: nextMode });
+                setConfig((prev) => (prev ? { ...prev, autoReweightMode: nextMode } : prev));
                 await apiPatch('/admin/config', { autoReweightMode: nextMode });
                 await load();
               }, 'Auto reweight mode updated.', 'Failed to update auto reweight mode.')}>
