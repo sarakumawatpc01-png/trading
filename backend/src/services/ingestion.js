@@ -1,4 +1,6 @@
 import { parse } from 'csv-parse/sync';
+import { isIndianMarketOpen } from '../utils/marketHours.js';
+import { normalizeIndianSymbol } from '../utils/symbol.js';
 
 export class IngestionService {
   constructor(store, logger) {
@@ -7,6 +9,7 @@ export class IngestionService {
   }
 
   async ingestNews() {
+    if (!isIndianMarketOpen()) return { ingested: 0, skipped: 'outside_market_hours_ist' };
     const symbols = (await this.store.listStocks()).map((s) => s.symbol);
     for (const symbol of symbols) {
       await this.logger.log('info', 'News ingested', { symbol, source: 'mock-news-v1', sentiment: 'neutral' });
@@ -15,6 +18,7 @@ export class IngestionService {
   }
 
   async ingestCompanyData() {
+    if (!isIndianMarketOpen()) return { ingested: 0, skipped: 'outside_market_hours_ist' };
     const symbols = (await this.store.listStocks()).map((s) => s.symbol);
     for (const symbol of symbols) {
       await this.logger.log('info', 'Company data ingested', { symbol, source: 'mock-company-v1' });
@@ -35,7 +39,7 @@ export class IngestionService {
     let inserted = 0;
     for (const row of rows) {
       if (row.symbol) {
-        await this.store.addStock(String(row.symbol).toUpperCase(), row);
+        await this.store.addStock(normalizeIndianSymbol(row.symbol), row);
         inserted++;
       }
     }

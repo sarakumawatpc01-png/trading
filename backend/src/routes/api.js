@@ -1,13 +1,17 @@
 import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { normalizeIndianSymbol } from '../utils/symbol.js';
 
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_BASE_SYMBOL_LENGTH = 20;
+const NSE_DOT_SUFFIX_LENGTH = 3;
+const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient }) {
   const router = express.Router();
 
-  const stockSchema = z.object({ symbol: z.string().min(1).max(20) });
+  const stockSchema = z.object({ symbol: z.string().min(1).max(MAX_BASE_SYMBOL_LENGTH + NSE_DOT_SUFFIX_LENGTH) });
   const analyzeSchema = z.object({ symbol: z.string().min(1), price: z.number().positive().default(100) });
 
   router.get('/health', async (_req, res) => {
@@ -22,7 +26,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.post('/stocks', async (req, res, next) => {
     try {
       const body = stockSchema.parse(req.body);
-      const stock = await store.addStock(body.symbol.toUpperCase());
+      const stock = await store.addStock(normalizeIndianSymbol(body.symbol));
       await logger.log('info', 'Stock added', { symbol: stock.symbol });
       res.status(201).json(stock);
     } catch (err) { next(err); }
@@ -66,7 +70,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.post('/admin/manual-analysis', async (req, res, next) => {
     try {
       const body = analyzeSchema.parse(req.body);
-      const result = await pipeline.enqueueAnalysis({ symbol: body.symbol.toUpperCase(), price: body.price, source: 'admin_manual' });
+      const result = await pipeline.enqueueAnalysis({ symbol: normalizeIndianSymbol(body.symbol), price: body.price, source: 'admin_manual' });
       res.status(202).json(result);
     } catch (err) { next(err); }
   });
@@ -74,7 +78,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.post('/admin/override-signal', async (req, res, next) => {
     try {
       const body = z.object({ symbol: z.string(), action: z.enum(['TAKE', 'WAIT', 'SKIP']), reason: z.string().min(3) }).parse(req.body);
-      const signal = await store.addSignal({ symbol: body.symbol.toUpperCase(), action: body.action, reason: `[override] ${body.reason}` });
+      const signal = await store.addSignal({ symbol: normalizeIndianSymbol(body.symbol), action: body.action, reason: `[override] ${body.reason}` });
       await logger.log('warn', 'Signal overridden by admin', body);
       res.status(201).json(signal);
     } catch (err) { next(err); }
@@ -99,7 +103,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.post('/analyze', async (req, res, next) => {
     try {
       const body = analyzeSchema.parse(req.body);
-      const result = await pipeline.enqueueAnalysis({ symbol: body.symbol.toUpperCase(), price: body.price, source: 'user' });
+      const result = await pipeline.enqueueAnalysis({ symbol: normalizeIndianSymbol(body.symbol), price: body.price, source: 'user' });
       res.status(202).json(result);
     } catch (err) { next(err); }
   });
@@ -107,9 +111,9 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.post('/ai/query', async (req, res, next) => {
     try {
       const body = z.object({ query: z.string().min(3) }).parse(req.body);
-      const match = body.query.match(/analyze\s+([A-Za-z0-9_-]+)/i);
+      const match = body.query.match(SYMBOL_QUERY_PATTERN);
       if (!match) return res.status(400).json({ error: 'Query format unsupported. Example: Analyze RELIANCE' });
-      const symbol = match[1].toUpperCase();
+      const symbol = normalizeIndianSymbol(match[1]);
       const run = await pipeline.enqueueAnalysis({ symbol, price: 100, source: 'ai_query', query: body.query });
       await logger.log('info', 'AI query received', { query: body.query, symbol, runId: run.runId });
       res.json({ accepted: true, symbol, runId: run.runId });

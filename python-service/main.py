@@ -1,6 +1,7 @@
 import asyncio
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, List
 
 import httpx
@@ -17,8 +18,24 @@ VOLUME_WEIGHT = 0.4
 TRIGGER_THRESHOLD = 4.2
 MOCK_BASE_PRICE = 100
 MOCK_PRICE_VARIANCE = 50
+IST_ZONE = ZoneInfo('Asia/Kolkata')
 
 app = FastAPI(title='Oracle Python Service')
+
+
+def normalize_indian_symbol(symbol: str) -> str:
+    normalized = str(symbol or '').strip().upper()
+    if not normalized:
+        return normalized
+    return normalized if normalized.endswith('.NS') else f'{normalized}.NS'
+
+
+def is_indian_market_open(now: datetime | None = None) -> bool:
+    current = now.astimezone(IST_ZONE) if now else datetime.now(IST_ZONE)
+    if current.weekday() >= 5:
+        return False
+    total_minutes = current.hour * 60 + current.minute
+    return (9 * 60 + 15) <= total_minutes <= (15 * 60 + 30)
 
 
 class TriggerPayload(BaseModel):
@@ -63,15 +80,17 @@ async def send_trigger(payload: Dict):
 
 async def prefilter_loop():
     while True:
-      stocks = await fetch_stocks()
-      for sym in stocks:
-        price = MOCK_BASE_PRICE + (sum(ord(c) for c in sym) % MOCK_PRICE_VARIANCE)
-        result = RuleEngine.evaluate(sym, float(price))
-        if result['should_trigger']:
-          await send_trigger({
-              'symbol': sym,
-              'price': result['price']
-          })
+      if is_indian_market_open():
+          stocks = await fetch_stocks()
+          for sym in stocks:
+              symbol = normalize_indian_symbol(sym)
+              price = MOCK_BASE_PRICE + (sum(ord(c) for c in symbol) % MOCK_PRICE_VARIANCE)
+              result = RuleEngine.evaluate(symbol, float(price))
+              if result['should_trigger']:
+                  await send_trigger({
+                      'symbol': symbol,
+                      'price': result['price']
+                  })
       await asyncio.sleep(PREFILTER_INTERVAL_SEC)
 
 
@@ -82,15 +101,16 @@ async def on_startup():
 
 @app.get('/health')
 async def health():
-    return {'status': 'up', 'time': datetime.utcnow().isoformat()}
+    return {'status': 'up', 'time': datetime.now(IST_ZONE).isoformat()}
 
 
 @app.post('/prefilter/trigger')
 async def trigger(payload: TriggerPayload):
-    result = RuleEngine.evaluate(payload.symbol.upper(), payload.price)
+    symbol = normalize_indian_symbol(payload.symbol)
+    result = RuleEngine.evaluate(symbol, payload.price)
     if result['should_trigger']:
       await send_trigger({
-          'symbol': payload.symbol.upper(),
+          'symbol': symbol,
           'price': payload.price,
           'source': payload.source
       })

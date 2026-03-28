@@ -42,7 +42,7 @@ test('AI query triggers analysis and creates setup', async () => {
   await new Promise((r) => setTimeout(r, 30));
   const setups = await store.listSetups();
   assert.ok(setups.length >= 1);
-  assert.equal(setups[0].symbol, 'RELIANCE');
+  assert.equal(setups[0].symbol, 'RELIANCE.NS');
 });
 
 test('admin can override signal', async () => {
@@ -52,6 +52,6 @@ test('admin can override signal', async () => {
     .send({ symbol: 'TCS', action: 'WAIT', reason: 'Risk event' });
 
   assert.equal(res.status, 201);
-  assert.equal(res.body.symbol, 'TCS');
+  assert.equal(res.body.symbol, 'TCS.NS');
   assert.equal(res.body.action, 'WAIT');
 });

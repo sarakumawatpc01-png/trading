@@ -12,6 +12,7 @@ import { IngestionService } from './services/ingestion.js';
 import { PythonClient } from './services/pythonClient.js';
 import { createApp } from './app.js';
 import { InMemoryQueue, createRedisQueue } from './queue/queue.js';
+import { normalizeIndianSymbol } from './utils/symbol.js';
 
 const store = new InMemoryStore();
 const broadcaster = new Broadcaster();
@@ -62,8 +63,8 @@ async function bootstrap() {
 
     pipeline.startWorker();
 
-    await store.addStock('RELIANCE', { sector: 'Energy' });
-    await store.addStock('TCS', { sector: 'IT' });
+    await store.addStock(normalizeIndianSymbol('RELIANCE'), { sector: 'Energy' });
+    await store.addStock(normalizeIndianSymbol('TCS'), { sector: 'IT' });
 
     server.listen(config.port, async () => {
       await logger.log('info', 'Backend started', { port: config.port });
