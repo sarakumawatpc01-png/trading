@@ -24,6 +24,7 @@ type PaperPortfolio = { balance: number; initialCapital: number; realizedPnl: nu
 type DecisionAudit = { id: string; symbol: string; decision: string; ev: number; avg: number; stdev: number; createdAt: string };
 type RiskEvent = { id: string; eventType: string; drawdownPercent?: number; threshold?: number; action?: string; createdAt: string };
 type SymbolMetric = { sampleSize: number; winRate: number; avgWin: number; avgLoss: number; profitFactor: number; expectancy: number };
+type UiNotice = { type: 'success' | 'error' | 'info'; text: string };
 
 type Config = {
   brainInstructions: string;
@@ -52,6 +53,11 @@ type Config = {
 };
 
 const PERCENT_SCALE = 100;
+const MAX_SYMBOL_METRICS = 8;
+const DEFAULT_MANUAL_ANALYSIS_PRICE = 120;
+const DEFAULT_WIN_RATE_GATE = 0.45;
+const DEFAULT_CONFIDENCE_DECAY_HOURS = 4;
+const DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT = 20;
 
 export default function Dashboard() {
   const [setups, setSetups] = useState<Setup[]>([]);
@@ -70,8 +76,11 @@ export default function Dashboard() {
   const [overrideSymbol, setOverrideSymbol] = useState('RELIANCE');
   const [overrideSlMultiplier, setOverrideSlMultiplier] = useState('0.99');
   const [overrideTargets, setOverrideTargets] = useState('1.01,1.02,1.03');
+  const [notice, setNotice] = useState<UiNotice | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const load = async () => {
+    setLoading(true);
     const [s1, s2, s3, s4, c, trades, portfolio, audits, risks] = await Promise.all([
       apiGet<Setup[]>('/setups'),
       apiGet<Signal[]>('/signals'),
@@ -82,10 +91,12 @@ export default function Dashboard() {
       apiGet<PaperPortfolio>('/paper/portfolio'),
       apiGet<DecisionAudit[]>(`/admin/decision-audit/${encodeURIComponent(manualSymbol)}`).catch((error: unknown) => {
         console.error('Failed to load decision audits', error);
+        setNotice({ type: 'error', text: 'Could not load decision audit right now.' });
         return [];
       }),
       apiGet<RiskEvent[]>('/admin/risk-events').catch((error: unknown) => {
         console.error('Failed to load risk events', error);
+        setNotice({ type: 'error', text: 'Could not load risk events right now.' });
         return [];
       })
     ]);
@@ -100,11 +111,22 @@ export default function Dashboard() {
     setRiskEvents(risks);
     setInstruction(c.brainInstructions || '');
 
-    const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, 8);
+    const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
     const metricsRows = await Promise.all(
       symbols.map(async (symbol) => [symbol, await apiGet<SymbolMetric>(`/metrics/${encodeURIComponent(symbol)}`)] as const)
     );
     setSymbolMetrics(Object.fromEntries(metricsRows));
+    setLoading(false);
+  };
+
+  const runAction = async (action: () => Promise<void>, successText: string, errorText: string) => {
+    try {
+      await action();
+      setNotice({ type: 'success', text: successText });
+    } catch (error) {
+      console.error(error);
+      setNotice({ type: 'error', text: errorText });
+    }
   };
 
   useEffect(() => {
@@ -141,9 +163,20 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold tracking-wide">ORACLE Trading Intelligence</h1>
         <div className="flex gap-2">
           <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button className="px-4 py-2 rounded bg-accent text-black font-semibold" onClick={async () => { await apiPost('/ai/query', { query }); }}>Ask AI</button>
+          <button className="px-4 py-2 rounded bg-accent text-black font-semibold" onClick={async () => runAction(async () => {
+            await apiPost('/ai/query', { query });
+            await load();
+          }, 'AI query sent.', 'Failed to submit AI query.')}>Ask AI</button>
         </div>
       </header>
+
+      {notice && (
+        <div className={`card ${notice.type === 'error' ? 'border border-rose-400 text-rose-300' : notice.type === 'success' ? 'border border-emerald-400 text-emerald-300' : 'border border-slate-500 text-slate-300'}`}>
+          {notice.text}
+        </div>
+      )}
+
+      {loading && <div className="text-xs text-slate-400">Refreshing dashboard...</div>}
 
       {config?.paperModeEnabled === false && (
         <div className="card border border-rose-400 text-rose-300">
@@ -200,7 +233,10 @@ export default function Dashboard() {
             )}
             <div className="pt-2 flex gap-2">
               <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={manualSymbol} onChange={(e) => setManualSymbol(e.target.value.toUpperCase())} />
-              <button className="px-4 py-2 rounded bg-sky-500" onClick={async () => { await apiPost('/admin/manual-analysis', { symbol: manualSymbol, price: 120 }); }}>Trigger Analysis</button>
+              <button className="px-4 py-2 rounded bg-sky-500" onClick={async () => runAction(async () => {
+                await apiPost('/admin/manual-analysis', { symbol: manualSymbol, price: DEFAULT_MANUAL_ANALYSIS_PRICE });
+                await load();
+              }, 'Manual analysis queued.', 'Failed to trigger manual analysis.')}>Trigger Analysis</button>
             </div>
           </div>
         </div>
@@ -255,10 +291,13 @@ export default function Dashboard() {
             <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideTargets} onChange={(e) => setOverrideTargets(e.target.value)} placeholder="1.01,1.02,1.03" />
             <button
               className="px-4 py-2 rounded bg-indigo-500"
-              onClick={async () => {
+              onClick={async () => runAction(async () => {
                 const symbol = overrideSymbol.endsWith('.NS') ? overrideSymbol : `${overrideSymbol}.NS`;
                 const targets = overrideTargets.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);
-                if (!targets.length) return;
+                if (!targets.length) {
+                  setNotice({ type: 'error', text: 'Please provide at least one valid target.' });
+                  return;
+                }
                 await apiPatch('/admin/config', {
                   stockOverrides: {
                     [symbol]: {
@@ -268,7 +307,7 @@ export default function Dashboard() {
                   }
                 });
                 await load();
-              }}
+              }, 'Stock override saved.', 'Failed to save stock override.')}
             >
               Save Override
             </button>
@@ -283,55 +322,68 @@ export default function Dashboard() {
             <div className="space-y-2">
               <h3 className="font-medium">Brain Instructions</h3>
               <textarea className="w-full h-24 p-2 rounded bg-slate-800 border border-slate-600" value={instruction} onChange={(e) => setInstruction(e.target.value)} />
-              <button className="px-4 py-2 rounded bg-amber-500 text-black font-semibold" onClick={async () => { await apiPatch('/admin/config', { brainInstructions: instruction }); await load(); }}>Save Instructions</button>
+              <button className="px-4 py-2 rounded bg-amber-500 text-black font-semibold" onClick={async () => runAction(async () => {
+                await apiPatch('/admin/config', { brainInstructions: instruction });
+                await load();
+              }, 'Brain instructions saved.', 'Failed to save brain instructions.')}>Save Instructions</button>
             </div>
 
             <div className="space-y-2">
               <h3 className="font-medium">Controls</h3>
-              <button className="px-4 py-2 rounded bg-emerald-600 mr-2" onClick={async () => { await apiPatch('/admin/config', { forceOverrideDisagreement: !config.forceOverrideDisagreement }); await load(); }}>
+              <button className="px-4 py-2 rounded bg-emerald-600 mr-2" onClick={async () => runAction(async () => {
+                await apiPatch('/admin/config', { forceOverrideDisagreement: !config.forceOverrideDisagreement });
+                await load();
+              }, 'Disagreement override updated.', 'Failed to update disagreement override.')}>
                 forceOverrideDisagreement: {String(config.forceOverrideDisagreement)}
               </button>
-              <button className="px-4 py-2 rounded bg-cyan-600 mr-2" onClick={async () => { await apiPatch('/admin/config', { autoReweightMode: config.autoReweightMode === 'winrate-percentile' ? 'drift' : 'winrate-percentile' }); await load(); }}>
+              <button className="px-4 py-2 rounded bg-cyan-600 mr-2" onClick={async () => runAction(async () => {
+                await apiPatch('/admin/config', { autoReweightMode: config.autoReweightMode === 'winrate-percentile' ? 'drift' : 'winrate-percentile' });
+                await load();
+              }, 'Auto reweight mode updated.', 'Failed to update auto reweight mode.')}>
                 autoReweightMode: {config.autoReweightMode || 'drift'}
               </button>
-              <button className="px-4 py-2 rounded bg-purple-500" onClick={async () => { await apiPost('/admin/ingest/news', {}); await apiPost('/admin/ingest/company', {}); await load(); }}>Run Ingestion</button>
-              <button className="px-4 py-2 rounded bg-slate-600 ml-2" onClick={async () => {
+              <button className="px-4 py-2 rounded bg-purple-500" onClick={async () => runAction(async () => {
+                await apiPost('/admin/ingest/news', {});
+                await apiPost('/admin/ingest/company', {});
+                await load();
+              }, 'Ingestion executed.', 'Failed to run ingestion.')}>Run Ingestion</button>
+              <button className="px-4 py-2 rounded bg-slate-600 ml-2" onClick={async () => runAction(async () => {
                 await apiPost('/prefilter/config', config.prefilterConfig || {});
                 await load();
-              }}>
+              }, 'Prefilter config pushed.', 'Failed to push prefilter config.')}>
                 Push Prefilter Config
               </button>
               <div className="pt-2">
                 <label className="block mb-1">Min win rate for TAKE</label>
                 <input
                   className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
-                  defaultValue={config.minSymbolWinRateForTake ?? 0.45}
-                  onBlur={async (event) => {
+                  defaultValue={config.minSymbolWinRateForTake ?? DEFAULT_WIN_RATE_GATE}
+                  onBlur={async (event) => runAction(async () => {
                     await apiPatch('/admin/config', { minSymbolWinRateForTake: Number(event.target.value) });
                     await load();
-                  }}
+                  }, 'Min win-rate gate updated.', 'Failed to update min win-rate gate.')}
                 />
               </div>
               <div>
                 <label className="block mb-1">Setup confidence decay (hours)</label>
                 <input
                   className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
-                  defaultValue={config.setupConfidenceDecayHours ?? 4}
-                  onBlur={async (event) => {
+                  defaultValue={config.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS}
+                  onBlur={async (event) => runAction(async () => {
                     await apiPatch('/admin/config', { setupConfidenceDecayHours: Number(event.target.value) });
                     await load();
-                  }}
+                  }, 'Confidence decay updated.', 'Failed to update confidence decay.')}
                 />
               </div>
               <div>
                 <label className="block mb-1">Auto shutdown drawdown %</label>
                 <input
                   className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
-                  defaultValue={config.autoShutdownDrawdownPercent ?? 20}
-                  onBlur={async (event) => {
+                  defaultValue={config.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT}
+                  onBlur={async (event) => runAction(async () => {
                     await apiPatch('/admin/config', { autoShutdownDrawdownPercent: Number(event.target.value) });
                     await load();
-                  }}
+                  }, 'Drawdown shutdown threshold updated.', 'Failed to update drawdown shutdown threshold.')}
                 />
               </div>
             </div>
