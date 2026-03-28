@@ -10,6 +10,14 @@ from pydantic import BaseModel, Field
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://backend:8080')
 PREFILTER_INTERVAL_SEC = int(os.getenv('PREFILTER_INTERVAL_SEC', '10'))
 
+MOMENTUM_MODULUS = 10
+VOLUME_MODULUS = 7
+MOMENTUM_WEIGHT = 0.6
+VOLUME_WEIGHT = 0.4
+TRIGGER_THRESHOLD = 4.2
+MOCK_BASE_PRICE = 100
+MOCK_PRICE_VARIANCE = 50
+
 app = FastAPI(title='Oracle Python Service')
 
 
@@ -22,10 +30,10 @@ class TriggerPayload(BaseModel):
 class RuleEngine:
     @staticmethod
     def evaluate(symbol: str, price: float) -> Dict:
-      momentum = (sum(ord(c) for c in symbol) % 10) / 10
-      volume_spike = (int(price * 100) % 7) / 7
-      score = round((momentum * 0.6 + volume_spike * 0.4) * 10, 2)
-      should_trigger = score >= 4.2
+      momentum = (sum(ord(c) for c in symbol) % MOMENTUM_MODULUS) / MOMENTUM_MODULUS
+      volume_spike = (int(price * 100) % VOLUME_MODULUS) / VOLUME_MODULUS
+      score = round((momentum * MOMENTUM_WEIGHT + volume_spike * VOLUME_WEIGHT) * 10, 2)
+      should_trigger = score >= TRIGGER_THRESHOLD
       return {
           'symbol': symbol,
           'price': price,
@@ -57,7 +65,7 @@ async def prefilter_loop():
     while True:
       stocks = await fetch_stocks()
       for sym in stocks:
-        price = 100 + (sum(ord(c) for c in sym) % 50)
+        price = MOCK_BASE_PRICE + (sum(ord(c) for c in sym) % MOCK_PRICE_VARIANCE)
         result = RuleEngine.evaluate(sym, float(price))
         if result['should_trigger']:
           await send_trigger({

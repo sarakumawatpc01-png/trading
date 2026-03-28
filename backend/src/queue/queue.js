@@ -1,6 +1,8 @@
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 
+const QUEUE_PROCESSING_DELAY_MS = 5;
+
 export class InMemoryQueue {
   constructor(logger) {
     this.logger = logger;
@@ -15,7 +17,7 @@ export class InMemoryQueue {
           await this.logger.log('error', 'InMemory queue handler failed', { error: err.message });
         }
       }
-    }, 5);
+    }, QUEUE_PROCESSING_DELAY_MS);
   }
   process(handler) { this.handlers.push(handler); }
   async count() { return 0; }
