@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #090d14;
+  color: #e4e8ef;
+}
+
+.card {
+  @apply bg-panel border border-slate-700 rounded-lg p-4 shadow-md;
+}
