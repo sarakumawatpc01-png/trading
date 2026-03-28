@@ -2,13 +2,15 @@ import { uid } from '../utils/id.js';
 import { normalizeIndianSymbol } from '../utils/symbol.js';
 
 export class PipelineService {
-  constructor({ store, queue, logger, agents, brain, broadcaster }) {
+  constructor({ store, queue, logger, agents, brain, broadcaster, driftMonitor, paperTrader }) {
     this.store = store;
     this.queue = queue;
     this.logger = logger;
     this.agents = agents;
     this.brain = brain;
     this.broadcaster = broadcaster;
+    this.driftMonitor = driftMonitor;
+    this.paperTrader = paperTrader;
   }
 
   async enqueueAnalysis(trigger) {
@@ -44,9 +46,19 @@ export class PipelineService {
           action: setup.decision,
           reason: setup.rationale
         });
+        const config = await this.store.getConfig();
+        const paperMode = Boolean(trigger?.paperMode || config.paperModeEnabled);
+        let paperTrade = null;
+        if (paperMode && setup.decision === 'TAKE' && this.paperTrader) {
+          paperTrade = await this.paperTrader.openFromSetup(setup, 1);
+        }
+        if (this.driftMonitor) {
+          await this.driftMonitor.autoReweightIfNeeded(trigger.symbol);
+        }
 
         this.broadcaster.broadcast('setup', setup);
         this.broadcaster.broadcast('signal', signal);
+        if (paperTrade) this.broadcaster.broadcast('paper-trade', paperTrade);
 
         await this.logger.log('info', 'Pipeline completed', {
           runId,
@@ -54,7 +66,8 @@ export class PipelineService {
           elapsedMs: Date.now() - started,
           disagreement: result.disagreement,
           avg: result.avg,
-          stdev: result.stdev
+          stdev: result.stdev,
+          ev: result.ev
         });
       } catch (err) {
         await this.logger.log('error', 'Pipeline failed', { runId, error: err.message });

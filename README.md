@@ -16,6 +16,11 @@ Production-ready full-stack ORACLE implementation with Node.js backend, Python p
   - AI query (`Analyze RELIANCE`)
   - Manual analysis trigger
   - Admin config (agent weights, brain instructions, API config)
+  - Per-agent instruction/knowledge/skill specs
+  - Outcome labeling + lightweight backtest endpoint
+  - EV-aware brain decision metrics
+  - Auto-reweight hooks + drift logs
+  - Paper-trade mode and portfolio endpoints
   - Ingestion (news/company + CSV/JSON upload)
   - Stocks management
   - Health/logs/signals/setups/agent outputs
@@ -27,6 +32,7 @@ Production-ready full-stack ORACLE implementation with Node.js backend, Python p
 - **Admin panel**: stock control, ingestion trigger, brain instruction management, override support via API
 - **Storage design**:
   - ClickHouse schema bootstrap for `setups`, `agent_outputs`, `stocks`, `logs`, `signals`, `system_config`
+  - Additional schema bootstrap for `agent_specs`, `outcomes`, `backtests`, `drift_logs`, `paper_trades`
   - In-memory operational store with same entity model
 
 ## Quick Start

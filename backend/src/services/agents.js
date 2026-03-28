@@ -24,23 +24,28 @@ export class AgentService {
 
   async runAll({ symbol, context, runId }) {
     const config = await this.store.getConfig();
-    const outputs = AGENTS.map((agent) => {
+    const outputs = [];
+    for (const agent of AGENTS) {
+      const spec = await this.store.getAgentSpec(agent);
       const base = seededScore(`${symbol}:${agent}:${JSON.stringify(context).slice(0, 100)}`);
       const weight = Number(config.agentWeights?.[agent] ?? 1);
       const score = Math.max(0, Math.min(10, Number((base * weight).toFixed(2))));
-      return {
+      outputs.push({
         runId,
         agent,
         symbol,
         score,
-        summary: `${agent} analyzed ${symbol} and produced score ${score}`,
+        summary: `${agent} analyzed ${symbol} and produced score ${score}${spec?.instruction ? ` using instruction` : ''}`,
         payload: {
           bias: score > 6 ? 'BULLISH' : score < 4 ? 'BEARISH' : 'NEUTRAL',
           confidence: score / 10,
-          trace: 'deterministic-mock-v1'
+          trace: 'deterministic-mock-v1',
+          instruction: spec?.instruction || null,
+          knowledge: spec?.knowledge || null,
+          skill: spec?.skill || {}
         }
-      };
-    });
+      });
+    }
 
     await this.store.addAgentOutputs(outputs);
     return outputs;
