@@ -4,11 +4,14 @@ import { z } from 'zod';
 import { normalizeIndianSymbol } from '../utils/symbol.js';
 
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_BASE_SYMBOL_LENGTH = 20;
+const NSE_DOT_SUFFIX_LENGTH = 3;
+const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient }) {
   const router = express.Router();
 
-  const stockSchema = z.object({ symbol: z.string().min(1).max(24) });
+  const stockSchema = z.object({ symbol: z.string().min(1).max(MAX_BASE_SYMBOL_LENGTH + NSE_DOT_SUFFIX_LENGTH) });
   const analyzeSchema = z.object({ symbol: z.string().min(1), price: z.number().positive().default(100) });
 
   router.get('/health', async (_req, res) => {
@@ -108,7 +111,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.post('/ai/query', async (req, res, next) => {
     try {
       const body = z.object({ query: z.string().min(3) }).parse(req.body);
-      const match = body.query.match(/analyze\s+([A-Za-z0-9_.-]+)/i);
+      const match = body.query.match(SYMBOL_QUERY_PATTERN);
       if (!match) return res.status(400).json({ error: 'Query format unsupported. Example: Analyze RELIANCE' });
       const symbol = normalizeIndianSymbol(match[1]);
       const run = await pipeline.enqueueAnalysis({ symbol, price: 100, source: 'ai_query', query: body.query });

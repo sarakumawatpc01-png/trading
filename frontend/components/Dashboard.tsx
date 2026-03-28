@@ -53,6 +53,10 @@ export default function Dashboard() {
     () => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }),
     []
   );
+  const safeFormatInr = (value: unknown) => {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) ? formatInr.format(numeric) : String(value ?? '');
+  };
 
   return (
     <div className="min-h-screen bg-bg text-slate-100 p-4 md:p-8 space-y-6">
@@ -73,8 +77,8 @@ export default function Dashboard() {
                 <summary className="cursor-pointer flex justify-between"><span>{s.symbol} · {s.decision}</span><span>{Math.round(s.confidence * 100)}%</span></summary>
                 <div className="text-xs mt-2 space-y-1">
                   <div>Entry: {s.entryZone}</div>
-                  <div>SL: {formatInr.format(s.stopLoss)}</div>
-                  <div>Targets: {s.targets?.map((target) => formatInr.format(target)).join(', ')}</div>
+                  <div>SL: {safeFormatInr(s.stopLoss)}</div>
+                  <div>Targets: {s.targets?.map((target) => safeFormatInr(target)).join(', ')}</div>
                   <div>{s.rationale}</div>
                 </div>
               </details>

@@ -2,7 +2,8 @@ import { uid } from '../utils/id.js';
 import { INDIA_TIME_ZONE } from '../utils/marketHours.js';
 import { normalizeIndianSymbol } from '../utils/symbol.js';
 
-const nowIso = () => new Date().toLocaleString('sv-SE', { timeZone: INDIA_TIME_ZONE }).replace(' ', 'T');
+// sv-SE provides stable YYYY-MM-DD HH:mm:ss ordering; we convert it to an IST-local timestamp shape.
+const nowIstLocal = () => new Date().toLocaleString('sv-SE', { timeZone: INDIA_TIME_ZONE }).replace(' ', 'T');
 
 export class InMemoryStore {
   constructor() {
@@ -29,7 +30,7 @@ export class InMemoryStore {
 
   async listStocks() { return this.stocks; }
   async addStock(symbol, meta = {}) {
-    const stock = { id: uid('stock'), symbol: normalizeIndianSymbol(symbol), meta, createdAt: nowIso(), active: true };
+    const stock = { id: uid('stock'), symbol: normalizeIndianSymbol(symbol), meta, createdAt: nowIstLocal(), active: true };
     this.stocks.push(stock);
     return stock;
   }
@@ -41,28 +42,28 @@ export class InMemoryStore {
   }
 
   async addSignal(signal) {
-    const row = { id: uid('signal'), ...signal, createdAt: nowIso() };
+    const row = { id: uid('signal'), ...signal, createdAt: nowIstLocal() };
     this.signals.unshift(row);
     return row;
   }
   async listSignals(limit = 50) { return this.signals.slice(0, limit); }
 
   async addSetup(setup) {
-    const row = { id: uid('setup'), ...setup, createdAt: nowIso() };
+    const row = { id: uid('setup'), ...setup, createdAt: nowIstLocal() };
     this.setups.unshift(row);
     return row;
   }
   async listSetups(limit = 50) { return this.setups.slice(0, limit); }
 
   async addAgentOutputs(outputs) {
-    const items = outputs.map((o) => ({ id: uid('agent_out'), ...o, createdAt: nowIso() }));
+    const items = outputs.map((o) => ({ id: uid('agent_out'), ...o, createdAt: nowIstLocal() }));
     this.agentOutputs.unshift(...items);
     return items;
   }
   async listAgentOutputs(limit = 200) { return this.agentOutputs.slice(0, limit); }
 
   async addLog(log) {
-    const row = { id: uid('log'), ...log, createdAt: nowIso() };
+    const row = { id: uid('log'), ...log, createdAt: nowIstLocal() };
     this.logs.unshift(row);
     return row;
   }
