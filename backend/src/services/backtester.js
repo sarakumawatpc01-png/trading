@@ -1,5 +1,3 @@
-const BACKTEST_CONFIDENCE_WIN_THRESHOLD = 0.6;
-
 export class BacktesterService {
   constructor(store) {
     this.store = store;
@@ -10,31 +8,8 @@ export class BacktesterService {
   }
 
   async runBacktest({ symbol, lookback = 200 }) {
-    const setups = await this.store.getRecentSetupsBySymbol(symbol, lookback);
-    if (!setups.length) {
-      return this.store.addBacktestResult({
-        symbol,
-        lookback,
-        sampleSize: 0,
-        takeCount: 0,
-        hitRate: 0,
-        avgConfidence: 0
-      });
-    }
-
-    const takeSetups = setups.filter((s) => s.decision === 'TAKE');
-    const pseudoWins = takeSetups.filter((s) => s.confidence >= BACKTEST_CONFIDENCE_WIN_THRESHOLD).length;
-    const hitRate = takeSetups.length ? pseudoWins / takeSetups.length : 0;
-    const avgConfidence = setups.reduce((acc, s) => acc + Number(s.confidence || 0), 0) / setups.length;
-
-    return this.store.addBacktestResult({
-      symbol,
-      lookback,
-      sampleSize: setups.length,
-      takeCount: takeSetups.length,
-      hitRate: Number(hitRate.toFixed(4)),
-      avgConfidence: Number(avgConfidence.toFixed(4))
-    });
+    const summary = await this.store.summarizeBacktest(symbol, lookback);
+    return this.store.addBacktestResult(summary);
   }
 
   async getBacktest(id) {

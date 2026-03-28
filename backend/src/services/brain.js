@@ -15,6 +15,27 @@ const MAX_DECAY_FACTOR = 1;
 const MS_PER_HOUR = 60 * 60 * 1000;
 const DEFAULT_CONFIDENCE_DECAY_HOURS = 4;
 const DEFAULT_MIN_CONFIDENCE_TO_TAKE = 0.2;
+const TREND_STRONG_THRESHOLD = 6.6;
+const TREND_WEAK_THRESHOLD = 5.5;
+const TREND_RANGE_THRESHOLD = 4.5;
+const HIGH_VOL_STDEV_THRESHOLD = 2.5;
+const NORMAL_VOL_STDEV_THRESHOLD = 1.5;
+
+function detectRegime({ avg, stdev, triggerContext = {} }) {
+  let trendState = 'RANGE';
+  if (avg >= TREND_STRONG_THRESHOLD) trendState = 'STRONG_TREND';
+  else if (avg >= TREND_WEAK_THRESHOLD) trendState = 'WEAK_TREND';
+  else if (avg <= TREND_RANGE_THRESHOLD) trendState = 'MEAN_REVERT';
+
+  let volBucket = 'NORMAL_VOL';
+  if (stdev >= HIGH_VOL_STDEV_THRESHOLD) volBucket = 'HIGH_VOL';
+  else if (stdev <= NORMAL_VOL_STDEV_THRESHOLD) volBucket = 'LOW_VOL';
+
+  const source = String(triggerContext.source || '').toLowerCase();
+  const eventDay = source.includes('news') ? 'EVENT' : source.includes('upload') ? 'PRE_EVENT' : 'NORMAL';
+
+  return { trendState, volBucket, eventDay };
+}
 
 export class BrainService {
   constructor(store) {
@@ -92,6 +113,8 @@ export class BrainService {
       decisionReason = 'confidence_decay_gate';
     }
 
+    const regime = detectRegime({ avg, stdev, triggerContext });
+
     const setup = {
       runId,
       symbol,
@@ -104,6 +127,7 @@ export class BrainService {
       targets,
       triggerPrice: triggerContext?.price,
       ev,
+      regime,
       winRate: stats.winRate,
       profitFactor: stats.profitFactor,
       rationale: `${decision} with avg=${avg.toFixed(2)} stdev=${stdev.toFixed(2)} ev=${ev.toFixed(3)} winRate=${stats.winRate.toFixed(3)} confidence=${effectiveConfidence.toFixed(3)} reason=${decisionReason}. Instructions: ${config.brainInstructions}`

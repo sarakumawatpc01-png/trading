@@ -25,3 +25,33 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   if (!res.ok) throw new Error(`PATCH ${path} failed`);
   return res.json();
 }
+
+const DEFAULT_DEBOUNCE_MS = 500;
+
+type PatchQueue = Record<string, unknown>;
+
+export class DebouncedConfigWriter {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private pending: PatchQueue = {};
+  private readonly delayMs: number;
+
+  constructor(delayMs = DEFAULT_DEBOUNCE_MS) {
+    this.delayMs = delayMs;
+  }
+
+  queue(partial: PatchQueue): Promise<void> {
+    this.pending = { ...this.pending, ...partial };
+    if (this.timer) clearTimeout(this.timer);
+    return new Promise((resolve, reject) => {
+      this.timer = setTimeout(async () => {
+        try {
+          await apiPatch('/admin/config', this.pending);
+          this.pending = {};
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      }, this.delayMs);
+    });
+  }
+}

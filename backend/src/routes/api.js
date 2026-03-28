@@ -101,6 +101,48 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     res.json(patched);
   });
 
+  router.get('/admin/config-schema', async (_req, res) => {
+    res.json(store.getConfigSchema());
+  });
+
+  router.post('/admin/validate-config-field', async (req, res, next) => {
+    try {
+      const body = z.object({ key: z.string().min(1), value: z.any() }).parse(req.body || {});
+      const error = store.validateConfigField(body.key, body.value);
+      res.json({ ok: !error, error: error || null });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/admin/batch-actions', async (req, res, next) => {
+    try {
+      const body = z.object({
+        actions: z.array(z.object({
+          type: z.enum(['patchConfig', 'reweightAgents', 'patchAgentSpec']),
+          payload: z.record(z.any())
+        })).min(1).max(100)
+      }).parse(req.body || {});
+      const results = [];
+      for (const action of body.actions) {
+        if (action.type === 'patchConfig') {
+          results.push(await store.patchConfig(action.payload));
+          continue;
+        }
+        if (action.type === 'reweightAgents') {
+          results.push(await store.reweightAgents(action.payload.agentWeights || {}));
+          continue;
+        }
+        if (action.type === 'patchAgentSpec') {
+          const agentName = String(action.payload.name || '');
+          if (!agentName) throw new Error('patchAgentSpec requires payload.name');
+          results.push(await store.patchAgentSpec(agentName, action.payload.partial || {}));
+          continue;
+        }
+      }
+      await logger.log('info', 'Batch actions executed', { count: body.actions.length });
+      res.json({ ok: true, executed: body.actions.length, results });
+    } catch (err) { next(err); }
+  });
+
   router.post('/admin/manual-analysis', async (req, res, next) => {
     try {
       const body = analyzeSchema.parse(req.body);
@@ -197,6 +239,34 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.get('/metrics/:symbol', async (req, res) => {
     const symbol = normalizeIndianSymbol(req.params.symbol);
     res.json(await store.getHistoricalStats(symbol));
+  });
+
+  router.get('/metrics/:symbol/by-regime', async (req, res) => {
+    const symbol = normalizeIndianSymbol(req.params.symbol);
+    const trendState = req.query.trendState ? String(req.query.trendState) : undefined;
+    const volBucket = req.query.volBucket ? String(req.query.volBucket) : undefined;
+    const eventDay = req.query.eventDay ? String(req.query.eventDay) : undefined;
+    res.json(await store.getHistoricalStatsByRegime(symbol, { trendState, volBucket, eventDay }));
+  });
+
+  router.get('/admin/regime-matrix', async (req, res) => {
+    const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : undefined;
+    const days = Number(req.query.days || 60);
+    res.json(await store.getRegimeHitRateMatrix({ symbol, days }));
+  });
+
+  router.get('/admin/agent-contribution-metrics', async (req, res) => {
+    const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : undefined;
+    const days = Number(req.query.days || 30);
+    const agent = req.query.agent ? String(req.query.agent) : undefined;
+    res.json(await store.getAgentContributionMetrics({ symbol, days, agent }));
+  });
+
+  router.get('/admin/signal-effectiveness', async (req, res) => {
+    const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : undefined;
+    const days = Number(req.query.days || 30);
+    const limit = Number(req.query.limit || 20);
+    res.json(await store.getSignalEffectiveness({ symbol, days, limit }));
   });
 
   router.get('/admin/decision-audit/:symbol', async (req, res) => {
