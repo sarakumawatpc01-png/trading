@@ -19,6 +19,7 @@ TRIGGER_THRESHOLD = float(os.getenv('PREFILTER_TRIGGER_THRESHOLD', '4.2'))
 MOCK_BASE_PRICE = 100
 MOCK_PRICE_VARIANCE = 50
 IST_ZONE = ZoneInfo('Asia/Kolkata')
+WEIGHT_SUM_TOLERANCE = 0.0001
 
 app = FastAPI(title='Oracle Python Service')
 
@@ -55,6 +56,9 @@ class RuleEngine:
 
     @classmethod
     def update_config(cls, config: Dict[str, float]) -> Dict[str, float]:
+      unknown_keys = [key for key in config.keys() if key not in cls.config]
+      if unknown_keys:
+          raise ValueError(f'Unknown config keys: {",".join(unknown_keys)}')
       for key in cls.config:
           if key in config and config[key] is not None:
               cls.config[key] = config[key]
@@ -145,7 +149,10 @@ async def configure_prefilter(payload: Dict):
     if momentum_weight is not None or volume_weight is not None:
         mw = float(momentum_weight if momentum_weight is not None else RuleEngine.config['momentumWeight'])
         vw = float(volume_weight if volume_weight is not None else RuleEngine.config['volumeWeight'])
-        if round(mw + vw, 6) != 1:
+        if abs((mw + vw) - 1) > WEIGHT_SUM_TOLERANCE:
             return {'updated': False, 'error': 'momentumWeight + volumeWeight must equal 1'}
-    updated = RuleEngine.update_config(payload)
+    try:
+        updated = RuleEngine.update_config(payload)
+    except ValueError as exc:
+        return {'updated': False, 'error': str(exc)}
     return {'updated': True, 'config': updated}

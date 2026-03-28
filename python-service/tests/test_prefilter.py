@@ -31,3 +31,12 @@ def test_rule_engine_dynamic_config_update():
     updated = RuleEngine.evaluate('Y', 0.06)
     assert updated['rules']['config']['momentumModulus'] == 8
     assert updated['rules']['config']['triggerThreshold'] == 5.0
+    assert abs(updated['rules']['config']['momentumWeight'] + updated['rules']['config']['volumeWeight'] - 1) < 0.0001
+
+
+def test_rule_engine_rejects_unknown_config_keys():
+    try:
+        RuleEngine.update_config({'invalidKey': 1})
+        assert False, 'Expected ValueError for unknown key'
+    except ValueError as error:
+        assert 'Unknown config keys' in str(error)

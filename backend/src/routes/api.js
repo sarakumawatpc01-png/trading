@@ -176,7 +176,11 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
         volumeWeight: z.number().min(0).max(1).optional(),
         triggerThreshold: z.number().positive().optional()
       }).parse(req.body || {});
-      const combinedWeight = Number(body.momentumWeight ?? 0) + Number(body.volumeWeight ?? 0);
+      const currentConfig = await store.getConfig();
+      const currentPrefilter = currentConfig.prefilterConfig || {};
+      const momentumWeight = Number(body.momentumWeight ?? currentPrefilter.momentumWeight ?? 0);
+      const volumeWeight = Number(body.volumeWeight ?? currentPrefilter.volumeWeight ?? 0);
+      const combinedWeight = momentumWeight + volumeWeight;
       if ((body.momentumWeight !== undefined || body.volumeWeight !== undefined) && Math.abs(combinedWeight - 1) > 0.0001) {
         return res.status(400).json({ error: 'momentumWeight + volumeWeight must equal 1' });
       }

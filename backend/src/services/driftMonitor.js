@@ -3,6 +3,8 @@ const WEIGHT_ADJUSTMENT_STEP = 0.1;
 const PERCENT_BASE = 100;
 const FALLBACK_LOWER_QUANTILE = 0.25;
 const FALLBACK_UPPER_QUANTILE = 0.75;
+const AGENT_SCORE_BOOST_THRESHOLD = 6;
+const AGENT_SCORE_PENALTY_THRESHOLD = 4;
 
 export class DriftMonitorService {
   constructor(store, agents) {
@@ -48,9 +50,9 @@ export class DriftMonitorService {
         const currentWeight = Number(current[agentName] ?? this.store.defaultAgentWeight());
         const scores = grouped.get(agentName) || [];
         const avgScore = scores.length ? scores.reduce((acc, val) => acc + val, 0) / scores.length : 5;
-        if (avgScore >= 6 && upper > 0) {
+        if (avgScore >= AGENT_SCORE_BOOST_THRESHOLD && upper > 0) {
           updates[agentName] = currentWeight + WEIGHT_ADJUSTMENT_STEP;
-        } else if (avgScore <= 4 || lower < 0) {
+        } else if (avgScore <= AGENT_SCORE_PENALTY_THRESHOLD || lower < 0) {
           updates[agentName] = currentWeight - WEIGHT_ADJUSTMENT_STEP;
         } else {
           updates[agentName] = currentWeight;

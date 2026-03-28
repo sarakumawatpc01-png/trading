@@ -138,6 +138,9 @@ export class InMemoryStore {
 
   async getConfig() { return this.systemConfig; }
   async patchConfig(partial) {
+    if (partial.paperInitialCapital && typeof partial.paperInitialCapital === 'number' && this.paperTrades.some((t) => t.status === 'OPEN')) {
+      throw new Error('Cannot change paperInitialCapital while open paper trades exist');
+    }
     this.systemConfig = {
       ...this.systemConfig,
       ...partial,

@@ -80,8 +80,14 @@ export default function Dashboard() {
       apiGet<Config>('/admin/config'),
       apiGet<PaperTrade[]>('/paper/trades'),
       apiGet<PaperPortfolio>('/paper/portfolio'),
-      apiGet<DecisionAudit[]>(`/admin/decision-audit/${encodeURIComponent(manualSymbol)}`).catch(() => []),
-      apiGet<RiskEvent[]>('/admin/risk-events').catch(() => [])
+      apiGet<DecisionAudit[]>(`/admin/decision-audit/${encodeURIComponent(manualSymbol)}`).catch((error: unknown) => {
+        console.error('Failed to load decision audits', error);
+        return [];
+      }),
+      apiGet<RiskEvent[]>('/admin/risk-events').catch((error: unknown) => {
+        console.error('Failed to load risk events', error);
+        return [];
+      })
     ]);
     setSetups(s1);
     setSignals(s2);
@@ -252,6 +258,7 @@ export default function Dashboard() {
               onClick={async () => {
                 const symbol = overrideSymbol.endsWith('.NS') ? overrideSymbol : `${overrideSymbol}.NS`;
                 const targets = overrideTargets.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);
+                if (!targets.length) return;
                 await apiPatch('/admin/config', {
                   stockOverrides: {
                     [symbol]: {

@@ -59,8 +59,10 @@ export class BrainService {
     }
     let decision = useEVBrain ? evDecision : fallbackDecision;
 
+    let decisionReason = 'base';
     if (decision === 'TAKE' && stats.winRate < Number(config.minSymbolWinRateForTake ?? minWinRate)) {
       decision = 'WAIT';
+      decisionReason = 'win_rate_gate';
     }
 
     const stockOverride = config.stockOverrides?.[symbol] || null;
@@ -70,7 +72,8 @@ export class BrainService {
       : TARGET_FACTORS;
 
     const now = Date.now();
-    const triggeredAtMs = Number(triggerContext?.triggeredAtMs || now);
+    const triggerTimestamp = Number(triggerContext?.triggeredAtMs);
+    const triggeredAtMs = Number.isFinite(triggerTimestamp) && triggerTimestamp > 0 ? triggerTimestamp : now;
     const elapsedMs = Math.max(0, now - triggeredAtMs);
     const decayHours = Number(config.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS);
     const decayRatio = decayHours > 0 ? elapsedMs / (decayHours * MS_PER_HOUR) : 0;
@@ -86,6 +89,7 @@ export class BrainService {
     const minConfidenceToTake = Number(config.minConfidenceToTake ?? DEFAULT_MIN_CONFIDENCE_TO_TAKE);
     if (decision === 'TAKE' && effectiveConfidence < minConfidenceToTake) {
       decision = 'WAIT';
+      decisionReason = 'confidence_decay_gate';
     }
 
     const setup = {
@@ -102,7 +106,7 @@ export class BrainService {
       ev,
       winRate: stats.winRate,
       profitFactor: stats.profitFactor,
-      rationale: `${decision} with avg=${avg.toFixed(2)} stdev=${stdev.toFixed(2)} ev=${ev.toFixed(3)} winRate=${stats.winRate.toFixed(3)} confidence=${effectiveConfidence.toFixed(3)}. Instructions: ${config.brainInstructions}`
+      rationale: `${decision} with avg=${avg.toFixed(2)} stdev=${stdev.toFixed(2)} ev=${ev.toFixed(3)} winRate=${stats.winRate.toFixed(3)} confidence=${effectiveConfidence.toFixed(3)} reason=${decisionReason}. Instructions: ${config.brainInstructions}`
     };
 
     return { setup, disagreement: effectiveDisagreement, avg, stdev, ev };
