@@ -22,6 +22,8 @@ export class InMemoryStore {
     this.outcomes = [];
     this.backtests = [];
     this.driftLogs = [];
+    this.decisionAudits = [];
+    this.riskEvents = [];
     this.paperTrades = [];
     this.logs = [];
     this.systemConfig = {
@@ -30,10 +32,23 @@ export class InMemoryStore {
       useEVBrain: true,
       evMinThreshold: 0.12,
       minWinRate: 0.45,
+      minSymbolWinRateForTake: 0.45,
+      forceOverrideDisagreement: false,
       autoReweightEnabled: true,
+      autoReweightMode: 'drift',
       driftThreshold: 0.2,
+      stockOverrides: {},
+      setupConfidenceDecayHours: 4,
       paperModeEnabled: false,
       paperInitialCapital: 100000,
+      autoShutdownDrawdownPercent: 20,
+      prefilterConfig: {
+        momentumModulus: 10,
+        volumeModulus: 7,
+        momentumWeight: 0.6,
+        volumeWeight: 0.4,
+        triggerThreshold: 4.2
+      },
       apiConfig: {
         newsProvider: 'mock-news-v1',
         marketProvider: 'mock-market-v1'
@@ -90,6 +105,9 @@ export class InMemoryStore {
   }
   async listAgentOutputs(limit = 200) { return this.agentOutputs.slice(0, limit); }
   async listAgentOutputsByRunId(runId) { return this.agentOutputs.filter((x) => x.runId === runId); }
+  async listAgentOutputsBySymbol(symbol, limit = 200) {
+    return this.agentOutputs.filter((x) => x.symbol === symbol).slice(0, limit);
+  }
 
   async listAgentSpecs() { return this.agentSpecs; }
   async getAgentSpec(name) { return this.agentSpecs[name] || null; }
@@ -124,7 +142,9 @@ export class InMemoryStore {
       ...this.systemConfig,
       ...partial,
       apiConfig: { ...this.systemConfig.apiConfig, ...(partial.apiConfig || {}) },
-      agentWeights: { ...this.systemConfig.agentWeights, ...(partial.agentWeights || {}) }
+      agentWeights: { ...this.systemConfig.agentWeights, ...(partial.agentWeights || {}) },
+      stockOverrides: { ...this.systemConfig.stockOverrides, ...(partial.stockOverrides || {}) },
+      prefilterConfig: { ...this.systemConfig.prefilterConfig, ...(partial.prefilterConfig || {}) }
     };
     if (partial.paperInitialCapital && typeof partial.paperInitialCapital === 'number') {
       this.paperPortfolio.initialCapital = partial.paperInitialCapital;
@@ -200,6 +220,24 @@ export class InMemoryStore {
     return row;
   }
   async listDriftLogs(limit = 200) { return this.driftLogs.slice(0, limit); }
+
+  async addDecisionAudit(log) {
+    const row = { id: uid('decision_audit'), ...log, createdAt: nowIstLocal() };
+    this.decisionAudits.unshift(row);
+    return row;
+  }
+  async listDecisionAuditsBySymbol(symbol, limit = 50) {
+    return this.decisionAudits.filter((x) => x.symbol === symbol).slice(0, limit);
+  }
+
+  async addRiskEvent(event) {
+    const row = { id: uid('risk_event'), ...event, createdAt: nowIstLocal() };
+    this.riskEvents.unshift(row);
+    return row;
+  }
+  async listRiskEvents(limit = 200) {
+    return this.riskEvents.slice(0, limit);
+  }
 
   async reweightAgents(weights) {
     const normalized = Object.fromEntries(

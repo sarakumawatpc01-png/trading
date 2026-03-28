@@ -18,3 +18,16 @@ def test_rule_engine_expected_scoring_and_trigger_behavior():
 
     assert high['score'] == 8.83
     assert high['should_trigger'] is True
+
+
+def test_rule_engine_dynamic_config_update():
+    RuleEngine.update_config({
+        'momentumModulus': 8,
+        'volumeModulus': 5,
+        'momentumWeight': 0.5,
+        'volumeWeight': 0.5,
+        'triggerThreshold': 5.0
+    })
+    updated = RuleEngine.evaluate('Y', 0.06)
+    assert updated['rules']['config']['momentumModulus'] == 8
+    assert updated['rules']['config']['triggerThreshold'] == 5.0

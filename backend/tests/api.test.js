@@ -27,7 +27,11 @@ function buildApp() {
   const driftMonitor = new DriftMonitorService(store, agents);
   const pipeline = new PipelineService({ store, queue, logger, agents, brain, broadcaster, driftMonitor, paperTrader });
   const ingestion = new IngestionService(store, logger);
-  const pythonClient = { health: async () => ({ status: 'up' }), triggerPrefilter: async (p) => ({ accepted: true, payload: p }) };
+  const pythonClient = {
+    health: async () => ({ status: 'up' }),
+    triggerPrefilter: async (p) => ({ accepted: true, payload: p }),
+    updatePrefilterConfig: async (p) => ({ updated: true, config: p })
+  };
 
   pipeline.startWorker();
 
@@ -117,4 +121,60 @@ test('seeds baseline specs for all 23 agents and supports bulk spec updates', as
   assert.equal(bulkRes.body.specs.A1_MarketStructure.skill.profileVersion, 'v2');
   assert.equal(bulkRes.body.specs.A2_KeyLevels.knowledge, 'Use HTF+LTF confluence');
   assert.equal(bulkRes.body.specs.A2_KeyLevels.skill.confidenceFloor, 0.55);
+});
+
+test('records decision audit and allows fetching by symbol', async () => {
+  const { app } = buildApp();
+
+  await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 120 });
+  await new Promise((r) => setTimeout(r, 30));
+
+  const auditRes = await request(app).get('/api/admin/decision-audit/RELIANCE');
+  assert.equal(auditRes.status, 200);
+  assert.ok(Array.isArray(auditRes.body));
+  assert.ok(auditRes.body.length >= 1);
+  assert.equal(auditRes.body[0].symbol, 'RELIANCE.NS');
+  assert.ok(Array.isArray(auditRes.body[0].agentVotes));
+});
+
+test('supports prefilter config updates and persists config', async () => {
+  const { app } = buildApp();
+
+  const res = await request(app).post('/api/prefilter/config').send({
+    momentumModulus: 9,
+    volumeModulus: 5,
+    momentumWeight: 0.6,
+    volumeWeight: 0.4,
+    triggerThreshold: 4.5
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.prefilterConfig.momentumModulus, 9);
+  assert.equal(res.body.prefilterConfig.triggerThreshold, 4.5);
+});
+
+test('triggers drawdown kill-switch and emits risk event', async () => {
+  const { app } = buildApp();
+
+  await request(app).patch('/api/admin/config').send({
+    paperModeEnabled: true,
+    autoShutdownDrawdownPercent: 0.01
+  });
+  await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 });
+  await new Promise((r) => setTimeout(r, 30));
+  const setupsRes = await request(app).get('/api/setups');
+  assert.equal(setupsRes.status, 200);
+  assert.ok(setupsRes.body.length >= 1);
+  const openRes = await request(app).post('/api/paper/trades').send({ setupId: setupsRes.body[0].id, quantity: 1 });
+  assert.equal(openRes.status, 201);
+  await request(app).patch(`/api/paper/trades/${openRes.body.id}`).send({ exitPrice: 80, exitReason: 'stop' });
+  await request(app).post('/api/admin/manual-analysis?paperMode=true').send({ symbol: 'RELIANCE', price: 100 });
+  await new Promise((r) => setTimeout(r, 30));
+
+  const configRes = await request(app).get('/api/admin/config');
+  assert.equal(configRes.status, 200);
+  assert.equal(configRes.body.paperModeEnabled, false);
+
+  const riskRes = await request(app).get('/api/admin/risk-events');
+  assert.equal(riskRes.status, 200);
+  assert.ok(riskRes.body.some((x) => x.eventType === 'DRAWDOWN_KILL_SWITCH'));
 });

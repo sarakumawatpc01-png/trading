@@ -3,19 +3,55 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPatch, apiPost } from '../lib/api';
 
-type Setup = { id: string; symbol: string; decision: string; confidence: number; entryZone: string; stopLoss: number; targets: number[]; rationale: string; createdAt: string };
+type Setup = {
+  id: string;
+  symbol: string;
+  decision: string;
+  confidence: number;
+  effectiveConfidence?: number;
+  confidenceDecayFactor?: number;
+  entryZone: string;
+  stopLoss: number;
+  targets: number[];
+  rationale: string;
+  createdAt: string;
+};
 type Signal = { id: string; symbol: string; action: string; reason: string; createdAt: string };
 type Log = { id: string; level: string; message: string; context: Record<string, unknown>; createdAt: string };
 type AgentOutput = { id: string; agent: string; symbol: string; score: number; summary: string; createdAt: string };
 type PaperTrade = { id: string; setupId: string; symbol: string; status: 'OPEN' | 'CLOSED'; pnl?: number; createdAt: string };
 type PaperPortfolio = { balance: number; initialCapital: number; realizedPnl: number; openTrades: number };
-const PERCENT_SCALE = 100;
+type DecisionAudit = { id: string; symbol: string; decision: string; ev: number; avg: number; stdev: number; createdAt: string };
+type RiskEvent = { id: string; eventType: string; drawdownPercent?: number; threshold?: number; action?: string; createdAt: string };
+type SymbolMetric = { sampleSize: number; winRate: number; avgWin: number; avgLoss: number; profitFactor: number; expectancy: number };
 
 type Config = {
   brainInstructions: string;
   agentWeights: Record<string, number>;
   apiConfig: Record<string, string>;
+  useEVBrain?: boolean;
+  evMinThreshold?: number;
+  minWinRate?: number;
+  minSymbolWinRateForTake?: number;
+  forceOverrideDisagreement?: boolean;
+  autoReweightEnabled?: boolean;
+  autoReweightMode?: string;
+  driftThreshold?: number;
+  paperModeEnabled?: boolean;
+  paperInitialCapital?: number;
+  autoShutdownDrawdownPercent?: number;
+  setupConfidenceDecayHours?: number;
+  stockOverrides?: Record<string, { slMultiplier?: number; targetFactors?: number[] }>;
+  prefilterConfig?: {
+    momentumModulus?: number;
+    volumeModulus?: number;
+    momentumWeight?: number;
+    volumeWeight?: number;
+    triggerThreshold?: number;
+  };
 };
+
+const PERCENT_SCALE = 100;
 
 export default function Dashboard() {
   const [setups, setSetups] = useState<Setup[]>([]);
@@ -24,20 +60,28 @@ export default function Dashboard() {
   const [agentOutputs, setAgentOutputs] = useState<AgentOutput[]>([]);
   const [paperTrades, setPaperTrades] = useState<PaperTrade[]>([]);
   const [paperPortfolio, setPaperPortfolio] = useState<PaperPortfolio | null>(null);
+  const [decisionAudits, setDecisionAudits] = useState<DecisionAudit[]>([]);
+  const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
+  const [symbolMetrics, setSymbolMetrics] = useState<Record<string, SymbolMetric>>({});
   const [query, setQuery] = useState('Analyze RELIANCE');
   const [manualSymbol, setManualSymbol] = useState('RELIANCE');
   const [config, setConfig] = useState<Config | null>(null);
   const [instruction, setInstruction] = useState('');
+  const [overrideSymbol, setOverrideSymbol] = useState('RELIANCE');
+  const [overrideSlMultiplier, setOverrideSlMultiplier] = useState('0.99');
+  const [overrideTargets, setOverrideTargets] = useState('1.01,1.02,1.03');
 
   const load = async () => {
-    const [s1, s2, s3, s4, c, trades, portfolio] = await Promise.all([
+    const [s1, s2, s3, s4, c, trades, portfolio, audits, risks] = await Promise.all([
       apiGet<Setup[]>('/setups'),
       apiGet<Signal[]>('/signals'),
       apiGet<Log[]>('/logs'),
       apiGet<AgentOutput[]>('/agent-outputs'),
       apiGet<Config>('/admin/config'),
       apiGet<PaperTrade[]>('/paper/trades'),
-      apiGet<PaperPortfolio>('/paper/portfolio')
+      apiGet<PaperPortfolio>('/paper/portfolio'),
+      apiGet<DecisionAudit[]>(`/admin/decision-audit/${encodeURIComponent(manualSymbol)}`).catch(() => []),
+      apiGet<RiskEvent[]>('/admin/risk-events').catch(() => [])
     ]);
     setSetups(s1);
     setSignals(s2);
@@ -46,7 +90,15 @@ export default function Dashboard() {
     setConfig(c);
     setPaperTrades(trades);
     setPaperPortfolio(portfolio);
+    setDecisionAudits(audits);
+    setRiskEvents(risks);
     setInstruction(c.brainInstructions || '');
+
+    const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, 8);
+    const metricsRows = await Promise.all(
+      symbols.map(async (symbol) => [symbol, await apiGet<SymbolMetric>(`/metrics/${encodeURIComponent(symbol)}`)] as const)
+    );
+    setSymbolMetrics(Object.fromEntries(metricsRows));
   };
 
   useEffect(() => {
@@ -59,13 +111,19 @@ export default function Dashboard() {
 
   const topAgents = useMemo(() => agentOutputs.slice(0, 12), [agentOutputs]);
   const paperTakenCount = useMemo(() => paperTrades.length, [paperTrades]);
-  const paperClosed = useMemo(() => paperTrades.filter((t) => t.status === 'CLOSED'), [paperTrades]);
-  const paperWins = useMemo(() => paperClosed.filter((t) => Number(t.pnl || 0) > 0).length, [paperClosed]);
+  const paperClosed = useMemo(() => paperTrades.filter((trade) => trade.status === 'CLOSED'), [paperTrades]);
+  const paperWins = useMemo(() => paperClosed.filter((trade) => Number(trade.pnl || 0) > 0).length, [paperClosed]);
   const paperHitRate = useMemo(() => (paperClosed.length ? (paperWins / paperClosed.length) * PERCENT_SCALE : 0), [paperClosed, paperWins]);
   const formatInr = useMemo(
     () => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }),
     []
   );
+
+  const drawdownPercent = useMemo(() => {
+    if (!paperPortfolio?.initialCapital) return 0;
+    return ((paperPortfolio.initialCapital - paperPortfolio.balance) / paperPortfolio.initialCapital) * 100;
+  }, [paperPortfolio]);
+
   const safeFormatInr = (value: unknown) => {
     const numeric = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(numeric) ? formatInr.format(numeric) : String(value ?? '');
@@ -81,18 +139,31 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {config?.paperModeEnabled === false && (
+        <div className="card border border-rose-400 text-rose-300">
+          Paper mode disabled. Drawdown: {drawdownPercent.toFixed(2)}%
+        </div>
+      )}
+
       <section className="grid md:grid-cols-3 gap-4">
         <div className="card">
           <h2 className="font-semibold mb-3">Live Setups</h2>
           <div className="space-y-3 max-h-72 overflow-auto">
-            {setups.map((s) => (
-              <details key={s.id} className="bg-slate-900 border border-slate-700 rounded p-2">
-                <summary className="cursor-pointer flex justify-between"><span>{s.symbol} · {s.decision}</span><span>{Math.round(s.confidence * 100)}%</span></summary>
+            {setups.map((setup) => (
+              <details key={setup.id} className="bg-slate-900 border border-slate-700 rounded p-2">
+                <summary className="cursor-pointer flex justify-between">
+                  <span>{setup.symbol} · {setup.decision}</span>
+                  <span>{Math.round((setup.effectiveConfidence ?? setup.confidence) * 100)}%</span>
+                </summary>
                 <div className="text-xs mt-2 space-y-1">
-                  <div>Entry: {s.entryZone}</div>
-                  <div>SL: {safeFormatInr(s.stopLoss)}</div>
-                  <div>Targets: {s.targets?.map((target) => safeFormatInr(target)).join(', ')}</div>
-                  <div>{s.rationale}</div>
+                  <div>Entry: {setup.entryZone}</div>
+                  <div>SL: {safeFormatInr(setup.stopLoss)}</div>
+                  <div>Targets: {setup.targets?.map((target) => safeFormatInr(target)).join(', ')}</div>
+                  <div>Raw confidence: {(setup.confidence * 100).toFixed(1)}%</div>
+                  {'effectiveConfidence' in setup && (
+                    <div>Effective confidence: {((setup.effectiveConfidence || 0) * 100).toFixed(1)}% · Decay: {setup.confidenceDecayFactor}</div>
+                  )}
+                  <div>{setup.rationale}</div>
                 </div>
               </details>
             ))}
@@ -102,10 +173,10 @@ export default function Dashboard() {
         <div className="card">
           <h2 className="font-semibold mb-3">Agent Outputs</h2>
           <div className="space-y-2 max-h-72 overflow-auto text-sm">
-            {topAgents.map((o) => (
-              <div key={o.id} className="border border-slate-700 rounded p-2">
-                <div className="font-medium">{o.agent} · {o.symbol}</div>
-                <div className="text-xs text-slate-300">Score: {o.score} · {o.summary}</div>
+            {topAgents.map((output) => (
+              <div key={output.id} className="border border-slate-700 rounded p-2">
+                <div className="font-medium">{output.agent} · {output.symbol}</div>
+                <div className="text-xs text-slate-300">Score: {output.score} · {output.summary}</div>
               </div>
             ))}
           </div>
@@ -131,26 +202,69 @@ export default function Dashboard() {
 
       <section className="grid md:grid-cols-2 gap-4">
         <div className="card">
-          <h2 className="font-semibold mb-3">Signal History</h2>
-          <div className="space-y-2 max-h-72 overflow-auto text-sm">
-            {signals.map((s) => (
-              <div key={s.id} className="border border-slate-700 rounded p-2">
-                <div>{s.symbol} · <span className="font-semibold">{s.action}</span></div>
-                <div className="text-xs text-slate-300">{s.reason}</div>
+          <h2 className="font-semibold mb-3">Symbol Stats</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-sm">
+            {Object.entries(symbolMetrics).map(([symbol, metric]) => (
+              <div key={symbol} className="border border-slate-700 rounded p-2">
+                <div className="font-medium">{symbol}</div>
+                <div className="text-xs text-slate-300">
+                  sample {metric.sampleSize} · win rate {(metric.winRate * 100).toFixed(1)}% · PF {metric.profitFactor.toFixed(2)} · expectancy {metric.expectancy.toFixed(2)}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
         <div className="card">
-          <h2 className="font-semibold mb-3">System Logs</h2>
-          <div className="space-y-2 max-h-72 overflow-auto text-xs">
-            {logs.map((l) => (
-              <div key={l.id} className="border border-slate-700 rounded p-2">
-                <div className="uppercase">{l.level} · {l.message}</div>
-                <div className="text-slate-300">{JSON.stringify(l.context)}</div>
+          <h2 className="font-semibold mb-3">Decision Audit ({manualSymbol})</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {decisionAudits.map((audit) => (
+              <div key={audit.id} className="border border-slate-700 rounded p-2">
+                <div>{audit.symbol} · {audit.decision} · ev {audit.ev}</div>
+                <div className="text-slate-300">avg {audit.avg} · stdev {audit.stdev} · {audit.createdAt}</div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid md:grid-cols-2 gap-4">
+        <div className="card">
+          <h2 className="font-semibold mb-3">Risk Events</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {riskEvents.map((risk) => (
+              <div key={risk.id} className="border border-slate-700 rounded p-2">
+                <div>{risk.eventType} · {risk.action}</div>
+                <div className="text-slate-300">DD {risk.drawdownPercent ?? '-'} / threshold {risk.threshold ?? '-'} · {risk.createdAt}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="font-semibold mb-3">Stock Override</h2>
+          <div className="space-y-2 text-sm">
+            <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideSymbol} onChange={(e) => setOverrideSymbol(e.target.value.toUpperCase())} placeholder="RELIANCE.NS" />
+            <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideSlMultiplier} onChange={(e) => setOverrideSlMultiplier(e.target.value)} placeholder="SL multiplier" />
+            <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideTargets} onChange={(e) => setOverrideTargets(e.target.value)} placeholder="1.01,1.02,1.03" />
+            <button
+              className="px-4 py-2 rounded bg-indigo-500"
+              onClick={async () => {
+                const symbol = overrideSymbol.endsWith('.NS') ? overrideSymbol : `${overrideSymbol}.NS`;
+                const targets = overrideTargets.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);
+                await apiPatch('/admin/config', {
+                  stockOverrides: {
+                    [symbol]: {
+                      slMultiplier: Number(overrideSlMultiplier),
+                      targetFactors: targets
+                    }
+                  }
+                });
+                await load();
+              }}
+            >
+              Save Override
+            </button>
           </div>
         </div>
       </section>
@@ -161,13 +275,58 @@ export default function Dashboard() {
           <div className="grid md:grid-cols-2 gap-4 text-sm">
             <div className="space-y-2">
               <h3 className="font-medium">Brain Instructions</h3>
-              <textarea className="w-full h-28 p-2 rounded bg-slate-800 border border-slate-600" value={instruction} onChange={(e) => setInstruction(e.target.value)} />
+              <textarea className="w-full h-24 p-2 rounded bg-slate-800 border border-slate-600" value={instruction} onChange={(e) => setInstruction(e.target.value)} />
               <button className="px-4 py-2 rounded bg-amber-500 text-black font-semibold" onClick={async () => { await apiPatch('/admin/config', { brainInstructions: instruction }); await load(); }}>Save Instructions</button>
             </div>
+
             <div className="space-y-2">
-              <h3 className="font-medium">API Config</h3>
-              <pre className="bg-slate-900 rounded p-2 border border-slate-700 overflow-auto">{JSON.stringify(config.apiConfig, null, 2)}</pre>
+              <h3 className="font-medium">Controls</h3>
+              <button className="px-4 py-2 rounded bg-emerald-600 mr-2" onClick={async () => { await apiPatch('/admin/config', { forceOverrideDisagreement: !config.forceOverrideDisagreement }); await load(); }}>
+                forceOverrideDisagreement: {String(config.forceOverrideDisagreement)}
+              </button>
+              <button className="px-4 py-2 rounded bg-cyan-600 mr-2" onClick={async () => { await apiPatch('/admin/config', { autoReweightMode: config.autoReweightMode === 'winrate-percentile' ? 'drift' : 'winrate-percentile' }); await load(); }}>
+                autoReweightMode: {config.autoReweightMode || 'drift'}
+              </button>
               <button className="px-4 py-2 rounded bg-purple-500" onClick={async () => { await apiPost('/admin/ingest/news', {}); await apiPost('/admin/ingest/company', {}); await load(); }}>Run Ingestion</button>
+              <button className="px-4 py-2 rounded bg-slate-600 ml-2" onClick={async () => {
+                await apiPost('/prefilter/config', config.prefilterConfig || {});
+                await load();
+              }}>
+                Push Prefilter Config
+              </button>
+              <div className="pt-2">
+                <label className="block mb-1">Min win rate for TAKE</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.minSymbolWinRateForTake ?? 0.45}
+                  onBlur={async (event) => {
+                    await apiPatch('/admin/config', { minSymbolWinRateForTake: Number(event.target.value) });
+                    await load();
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">Setup confidence decay (hours)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.setupConfidenceDecayHours ?? 4}
+                  onBlur={async (event) => {
+                    await apiPatch('/admin/config', { setupConfidenceDecayHours: Number(event.target.value) });
+                    await load();
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">Auto shutdown drawdown %</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.autoShutdownDrawdownPercent ?? 20}
+                  onBlur={async (event) => {
+                    await apiPatch('/admin/config', { autoShutdownDrawdownPercent: Number(event.target.value) });
+                    await load();
+                  }}
+                />
+              </div>
             </div>
           </div>
         )}

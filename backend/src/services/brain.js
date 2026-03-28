@@ -10,6 +10,11 @@ const EV_STDEV_PENALTY_FACTOR = 0.5;
 const EV_BOOST_IF_AGREEMENT = 0.1;
 const DEFAULT_TAKE_THRESHOLD = TAKE_THRESHOLD;
 const DEFAULT_SKIP_THRESHOLD = SKIP_THRESHOLD;
+const MIN_DECAY_FACTOR = 0;
+const MAX_DECAY_FACTOR = 1;
+const MS_PER_HOUR = 60 * 60 * 1000;
+const DEFAULT_CONFIDENCE_DECAY_HOURS = 4;
+const DEFAULT_MIN_CONFIDENCE_TO_TAKE = 0.2;
 
 export class BrainService {
   constructor(store) {
@@ -38,32 +43,58 @@ export class BrainService {
     const useEVBrain = Boolean(config.useEVBrain);
 
     const disagreement = stdev > DISAGREEMENT_THRESHOLD;
+    const effectiveDisagreement = disagreement && !Boolean(config.forceOverrideDisagreement);
     const thresholdTake = Number(config.takeThreshold ?? DEFAULT_TAKE_THRESHOLD);
     const thresholdSkip = Number(config.skipThreshold ?? DEFAULT_SKIP_THRESHOLD);
-    const fallbackDecision = disagreement ? 'WAIT' : avg >= thresholdTake ? 'TAKE' : avg <= thresholdSkip ? 'SKIP' : 'WAIT';
+    const fallbackDecision = effectiveDisagreement ? 'WAIT' : avg >= thresholdTake ? 'TAKE' : avg <= thresholdSkip ? 'SKIP' : 'WAIT';
     let evDecision = 'WAIT';
     const evMinThreshold = Number(config.evMinThreshold ?? 0.12);
-    const minWinRate = Number(config.minWinRate ?? 0.45);
-    if (disagreement) {
+    const minWinRate = Number(config.minWinRate ?? config.minSymbolWinRateForTake ?? 0.45);
+    if (effectiveDisagreement) {
       evDecision = 'WAIT';
     } else if (ev >= evMinThreshold && stats.winRate >= minWinRate) {
       evDecision = 'TAKE';
     } else if (ev < 0) {
       evDecision = 'SKIP';
     }
-    const decision = useEVBrain ? evDecision : fallbackDecision;
+    let decision = useEVBrain ? evDecision : fallbackDecision;
+
+    if (decision === 'TAKE' && stats.winRate < Number(config.minSymbolWinRateForTake ?? minWinRate)) {
+      decision = 'WAIT';
+    }
+
+    const stockOverride = config.stockOverrides?.[symbol] || null;
+    const stopLossTakeFactor = Number(stockOverride?.slMultiplier ?? STOP_LOSS_TAKE_FACTOR);
+    const targetsFactors = Array.isArray(stockOverride?.targetFactors) && stockOverride.targetFactors.length
+      ? stockOverride.targetFactors.map((value) => Number(value)).filter(Number.isFinite)
+      : TARGET_FACTORS;
+
+    const now = Date.now();
+    const triggeredAtMs = Number(triggerContext?.triggeredAtMs || now);
+    const elapsedMs = Math.max(0, now - triggeredAtMs);
+    const decayHours = Number(config.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS);
+    const decayRatio = decayHours > 0 ? elapsedMs / (decayHours * MS_PER_HOUR) : 0;
+    const confidenceDecayFactor = Number(Math.max(MIN_DECAY_FACTOR, Math.min(MAX_DECAY_FACTOR, 1 - decayRatio)).toFixed(3));
 
     const entryLow = Number((triggerContext?.price * ENTRY_LOW_FACTOR).toFixed(2));
     const entryHigh = Number((triggerContext?.price * ENTRY_HIGH_FACTOR).toFixed(2));
-    const stopLossFactor = decision === 'TAKE' ? STOP_LOSS_TAKE_FACTOR : STOP_LOSS_WAIT_OR_SKIP_FACTOR;
+    const stopLossFactor = decision === 'TAKE' ? stopLossTakeFactor : STOP_LOSS_WAIT_OR_SKIP_FACTOR;
     const stopLoss = Number((triggerContext?.price * stopLossFactor).toFixed(2));
-    const targets = TARGET_FACTORS.map((factor) => Number((triggerContext?.price * factor).toFixed(2)));
+    const targets = targetsFactors.map((factor) => Number((triggerContext?.price * factor).toFixed(2)));
+    const rawConfidence = Number((avg / 10).toFixed(3));
+    const effectiveConfidence = Number((rawConfidence * confidenceDecayFactor).toFixed(3));
+    const minConfidenceToTake = Number(config.minConfidenceToTake ?? DEFAULT_MIN_CONFIDENCE_TO_TAKE);
+    if (decision === 'TAKE' && effectiveConfidence < minConfidenceToTake) {
+      decision = 'WAIT';
+    }
 
     const setup = {
       runId,
       symbol,
       decision,
-      confidence: Number((avg / 10).toFixed(3)),
+      confidence: rawConfidence,
+      effectiveConfidence,
+      confidenceDecayFactor,
       entryZone: `${entryLow}-${entryHigh}`,
       stopLoss,
       targets,
@@ -71,9 +102,9 @@ export class BrainService {
       ev,
       winRate: stats.winRate,
       profitFactor: stats.profitFactor,
-      rationale: `${decision} with avg=${avg.toFixed(2)} stdev=${stdev.toFixed(2)} ev=${ev.toFixed(3)} winRate=${stats.winRate.toFixed(3)}. Instructions: ${config.brainInstructions}`
+      rationale: `${decision} with avg=${avg.toFixed(2)} stdev=${stdev.toFixed(2)} ev=${ev.toFixed(3)} winRate=${stats.winRate.toFixed(3)} confidence=${effectiveConfidence.toFixed(3)}. Instructions: ${config.brainInstructions}`
     };
 
-    return { setup, disagreement, avg, stdev, ev };
+    return { setup, disagreement: effectiveDisagreement, avg, stdev, ev };
   }
 }

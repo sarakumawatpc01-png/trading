@@ -167,9 +167,42 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     } catch (err) { next(err); }
   });
 
+  router.post('/prefilter/config', async (req, res, next) => {
+    try {
+      const body = z.object({
+        momentumModulus: z.number().int().positive().optional(),
+        volumeModulus: z.number().int().positive().optional(),
+        momentumWeight: z.number().min(0).max(1).optional(),
+        volumeWeight: z.number().min(0).max(1).optional(),
+        triggerThreshold: z.number().positive().optional()
+      }).parse(req.body || {});
+      const combinedWeight = Number(body.momentumWeight ?? 0) + Number(body.volumeWeight ?? 0);
+      if ((body.momentumWeight !== undefined || body.volumeWeight !== undefined) && Math.abs(combinedWeight - 1) > 0.0001) {
+        return res.status(400).json({ error: 'momentumWeight + volumeWeight must equal 1' });
+      }
+      const payload = Object.fromEntries(
+        Object.entries(body).filter(([, value]) => value !== undefined)
+      );
+      const patched = await store.patchConfig({ prefilterConfig: payload });
+      const python = await pythonClient.updatePrefilterConfig(payload);
+      await logger.log('info', 'Prefilter config updated', { keys: Object.keys(payload) });
+      res.json({ prefilterConfig: patched.prefilterConfig, python });
+    } catch (err) { next(err); }
+  });
+
   router.get('/metrics/:symbol', async (req, res) => {
     const symbol = normalizeIndianSymbol(req.params.symbol);
     res.json(await store.getHistoricalStats(symbol));
+  });
+
+  router.get('/admin/decision-audit/:symbol', async (req, res) => {
+    const symbol = normalizeIndianSymbol(req.params.symbol);
+    const limit = Number(req.query.limit || 50);
+    res.json(await store.listDecisionAuditsBySymbol(symbol, limit));
+  });
+
+  router.get('/admin/risk-events', async (req, res) => {
+    res.json(await store.listRiskEvents(Number(req.query.limit || 200)));
   });
 
   router.get('/outcomes', async (req, res) => {

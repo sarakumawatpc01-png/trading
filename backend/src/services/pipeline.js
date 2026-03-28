@@ -15,7 +15,11 @@ export class PipelineService {
 
   async enqueueAnalysis(trigger) {
     const runId = uid('run');
-    const normalizedTrigger = { ...trigger, symbol: normalizeIndianSymbol(trigger.symbol) };
+    const normalizedTrigger = {
+      ...trigger,
+      symbol: normalizeIndianSymbol(trigger.symbol),
+      triggeredAtMs: Number(trigger?.triggeredAtMs || Date.now())
+    };
     await this.queue.add({ runId, trigger: normalizedTrigger, requestedAt: Date.now() });
     await this.logger.log('info', 'Analysis enqueued', { runId, symbol: normalizedTrigger.symbol });
     return { runId };
@@ -38,6 +42,21 @@ export class PipelineService {
           runId,
           agentOutputs,
           triggerContext: trigger
+        });
+        await this.store.addDecisionAudit({
+          runId,
+          symbol: trigger.symbol,
+          decision: result.setup.decision,
+          ev: result.ev,
+          avg: Number(result.avg?.toFixed?.(4) ?? result.avg ?? 0),
+          stdev: Number(result.stdev?.toFixed?.(4) ?? result.stdev ?? 0),
+          disagreement: result.disagreement,
+          triggerPrice: trigger.price,
+          agentVotes: agentOutputs.map((output) => ({
+            agent: output.agent,
+            score: output.score,
+            bias: output.payload?.bias || null
+          }))
         });
 
         const setup = await this.store.addSetup(result.setup);
