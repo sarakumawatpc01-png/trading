@@ -1,6 +1,8 @@
 import { uid } from '../utils/id.js';
+import { INDIA_TIME_ZONE } from '../utils/marketHours.js';
+import { normalizeIndianSymbol } from '../utils/symbol.js';
 
-const nowIso = () => new Date().toISOString();
+const nowIso = () => new Date().toLocaleString('sv-SE', { timeZone: INDIA_TIME_ZONE }).replace(' ', 'T');
 
 export class InMemoryStore {
   constructor() {
@@ -11,7 +13,7 @@ export class InMemoryStore {
     this.logs = [];
     this.systemConfig = {
       agentWeights: {},
-      brainInstructions: 'Default: prioritize high consensus and risk discipline.',
+      brainInstructions: 'Default: prioritize high consensus and risk discipline. Prioritize regime alignment with the NIFTY 50 trend. Avoid low liquidity sessions before 9:30 AM IST. Factor in Indian market dynamics.',
       apiConfig: {
         newsProvider: 'mock-news-v1',
         marketProvider: 'mock-market-v1'
@@ -27,7 +29,7 @@ export class InMemoryStore {
 
   async listStocks() { return this.stocks; }
   async addStock(symbol, meta = {}) {
-    const stock = { id: uid('stock'), symbol, meta, createdAt: nowIso(), active: true };
+    const stock = { id: uid('stock'), symbol: normalizeIndianSymbol(symbol), meta, createdAt: nowIso(), active: true };
     this.stocks.push(stock);
     return stock;
   }

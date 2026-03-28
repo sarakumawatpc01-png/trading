@@ -1,4 +1,5 @@
 import { uid } from '../utils/id.js';
+import { normalizeIndianSymbol } from '../utils/symbol.js';
 
 export class PipelineService {
   constructor({ store, queue, logger, agents, brain, broadcaster }) {
@@ -12,8 +13,9 @@ export class PipelineService {
 
   async enqueueAnalysis(trigger) {
     const runId = uid('run');
-    await this.queue.add({ runId, trigger, requestedAt: Date.now() });
-    await this.logger.log('info', 'Analysis enqueued', { runId, symbol: trigger.symbol });
+    const normalizedTrigger = { ...trigger, symbol: normalizeIndianSymbol(trigger.symbol) };
+    await this.queue.add({ runId, trigger: normalizedTrigger, requestedAt: Date.now() });
+    await this.logger.log('info', 'Analysis enqueued', { runId, symbol: normalizedTrigger.symbol });
     return { runId };
   }
 
