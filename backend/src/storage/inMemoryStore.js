@@ -1,6 +1,7 @@
 import { uid } from '../utils/id.js';
 import { INDIA_TIME_ZONE } from '../utils/marketHours.js';
 import { normalizeIndianSymbol } from '../utils/symbol.js';
+import { createDefaultAgentSpecs } from '../services/agentCatalog.js';
 
 // sv-SE provides stable YYYY-MM-DD HH:mm:ss ordering; we convert it to an IST-local timestamp shape.
 const nowIstLocal = () => new Date().toLocaleString('sv-SE', { timeZone: INDIA_TIME_ZONE }).replace(' ', 'T');
@@ -17,7 +18,7 @@ export class InMemoryStore {
     this.setupById = new Map();
     this.setupsBySymbol = new Map();
     this.agentOutputs = [];
-    this.agentSpecs = {};
+    this.agentSpecs = createDefaultAgentSpecs();
     this.outcomes = [];
     this.backtests = [];
     this.driftLogs = [];
@@ -102,6 +103,12 @@ export class InMemoryStore {
     };
     this.agentSpecs[name] = next;
     return next;
+  }
+  async patchAgentSpecsBulk(specs = {}) {
+    const nextEntries = await Promise.all(
+      Object.entries(specs).map(async ([name, partial]) => [name, await this.patchAgentSpec(name, partial)])
+    );
+    return Object.fromEntries(nextEntries);
   }
 
   async addLog(log) {

@@ -63,6 +63,21 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     res.json(spec);
   });
 
+  router.post('/agents/specs/bulk', async (req, res, next) => {
+    try {
+      const body = z.object({
+        specs: z.record(z.object({
+          instruction: z.string().optional(),
+          knowledge: z.string().optional(),
+          skill: z.record(z.any()).optional()
+        }))
+      }).parse(req.body || {});
+      const patched = await store.patchAgentSpecsBulk(body.specs);
+      await logger.log('info', 'Agent specs bulk updated', { count: Object.keys(body.specs).length });
+      res.json({ updated: Object.keys(patched).length, specs: patched });
+    } catch (err) { next(err); }
+  });
+
   router.patch('/agents/:name/spec', async (req, res, next) => {
     try {
       const body = z.object({
@@ -247,12 +262,6 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     } catch (err) { next(err); }
   });
 
-  router.use((err, _req, res, _next) => {
-    res.status(400).json({ error: err.message });
-  });
-
-  return router;
-}
   async function runBacktestOrFallback(symbol, lookback) {
     if (backtester) return backtester.runBacktest({ symbol, lookback });
     return store.addBacktestResult({
@@ -264,3 +273,10 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       avgConfidence: 0
     });
   }
+
+  router.use((err, _req, res, _next) => {
+    res.status(400).json({ error: err.message });
+  });
+
+  return router;
+}
