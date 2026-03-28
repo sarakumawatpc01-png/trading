@@ -15,7 +15,12 @@ export function createClickhouse(config) {
       `CREATE TABLE IF NOT EXISTS oracle.stocks (id String, symbol String, meta String, active UInt8, createdAt DateTime) ENGINE = MergeTree ORDER BY (symbol, createdAt)`,
       `CREATE TABLE IF NOT EXISTS oracle.logs (id String, level String, message String, context String, createdAt DateTime) ENGINE = MergeTree ORDER BY (createdAt, level)`,
       `CREATE TABLE IF NOT EXISTS oracle.signals (id String, symbol String, action String, reason String, createdAt DateTime) ENGINE = MergeTree ORDER BY (symbol, createdAt)`,
-      `CREATE TABLE IF NOT EXISTS oracle.system_config (id String, payload String, createdAt DateTime) ENGINE = ReplacingMergeTree(createdAt) ORDER BY id`
+      `CREATE TABLE IF NOT EXISTS oracle.system_config (id String, payload String, createdAt DateTime) ENGINE = ReplacingMergeTree(createdAt) ORDER BY id`,
+      `CREATE TABLE IF NOT EXISTS oracle.agent_specs (id String, agent String, instruction String, knowledge String, skill String, createdAt DateTime) ENGINE = MergeTree ORDER BY (agent, createdAt)`,
+      `CREATE TABLE IF NOT EXISTS oracle.outcomes (id String, setupId String, runId String, symbol String, entryPrice Float64, exitPrice Float64, quantity Float64, pnl Float64, pnlPercent Float64, status String, exitReason String, createdAt DateTime) ENGINE = MergeTree ORDER BY (symbol, createdAt)`,
+      `CREATE TABLE IF NOT EXISTS oracle.backtests (id String, symbol String, lookback Int32, sampleSize Int32, takeCount Int32, hitRate Float64, avgConfidence Float64, createdAt DateTime) ENGINE = MergeTree ORDER BY (symbol, createdAt)`,
+      `CREATE TABLE IF NOT EXISTS oracle.drift_logs (id String, symbol String, driftScore Float64, action String, affectedAgents Int32, createdAt DateTime) ENGINE = MergeTree ORDER BY (symbol, createdAt)`,
+      `CREATE TABLE IF NOT EXISTS oracle.paper_trades (id String, setupId String, runId String, symbol String, entryPrice Float64, quantity Float64, stopLoss Float64, targets String, exitPrice Float64, status String, exitReason String, pnl Float64, createdAt DateTime) ENGINE = MergeTree ORDER BY (symbol, createdAt)`
     ];
 
     for (const q of statements) {

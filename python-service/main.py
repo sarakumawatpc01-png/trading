@@ -11,14 +11,15 @@ from pydantic import BaseModel, Field
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://backend:8080')
 PREFILTER_INTERVAL_SEC = int(os.getenv('PREFILTER_INTERVAL_SEC', '10'))
 
-MOMENTUM_MODULUS = 10
-VOLUME_MODULUS = 7
-MOMENTUM_WEIGHT = 0.6
-VOLUME_WEIGHT = 0.4
-TRIGGER_THRESHOLD = 4.2
+MOMENTUM_MODULUS = int(os.getenv('PREFILTER_MOMENTUM_MODULUS', '10'))
+VOLUME_MODULUS = int(os.getenv('PREFILTER_VOLUME_MODULUS', '7'))
+MOMENTUM_WEIGHT = float(os.getenv('PREFILTER_MOMENTUM_WEIGHT', '0.6'))
+VOLUME_WEIGHT = float(os.getenv('PREFILTER_VOLUME_WEIGHT', '0.4'))
+TRIGGER_THRESHOLD = float(os.getenv('PREFILTER_TRIGGER_THRESHOLD', '4.2'))
 MOCK_BASE_PRICE = 100
 MOCK_PRICE_VARIANCE = 50
 IST_ZONE = ZoneInfo('Asia/Kolkata')
+WEIGHT_SUM_TOLERANCE = 0.0001
 
 app = FastAPI(title='Oracle Python Service')
 
@@ -45,12 +46,35 @@ class TriggerPayload(BaseModel):
 
 
 class RuleEngine:
+    config: Dict[str, float] = {
+        'momentumModulus': MOMENTUM_MODULUS,
+        'volumeModulus': VOLUME_MODULUS,
+        'momentumWeight': MOMENTUM_WEIGHT,
+        'volumeWeight': VOLUME_WEIGHT,
+        'triggerThreshold': TRIGGER_THRESHOLD
+    }
+
+    @classmethod
+    def update_config(cls, config: Dict[str, float]) -> Dict[str, float]:
+      unknown_keys = [key for key in config.keys() if key not in cls.config]
+      if unknown_keys:
+          raise ValueError(f'Unknown config keys: {",".join(unknown_keys)}')
+      for key in cls.config:
+          if key in config and config[key] is not None:
+              cls.config[key] = config[key]
+      return cls.config
+
     @staticmethod
     def evaluate(symbol: str, price: float) -> Dict:
-      momentum = (sum(ord(c) for c in symbol) % MOMENTUM_MODULUS) / MOMENTUM_MODULUS
-      volume_spike = (int(price * 100) % VOLUME_MODULUS) / VOLUME_MODULUS
-      score = round((momentum * MOMENTUM_WEIGHT + volume_spike * VOLUME_WEIGHT) * 10, 2)
-      should_trigger = score >= TRIGGER_THRESHOLD
+      momentum_modulus = max(1, int(RuleEngine.config['momentumModulus']))
+      volume_modulus = max(1, int(RuleEngine.config['volumeModulus']))
+      momentum_weight = float(RuleEngine.config['momentumWeight'])
+      volume_weight = float(RuleEngine.config['volumeWeight'])
+      trigger_threshold = float(RuleEngine.config['triggerThreshold'])
+      momentum = (sum(ord(c) for c in symbol) % momentum_modulus) / momentum_modulus
+      volume_spike = (int(price * 100) % volume_modulus) / volume_modulus
+      score = round((momentum * momentum_weight + volume_spike * volume_weight) * 10, 2)
+      should_trigger = score >= trigger_threshold
       return {
           'symbol': symbol,
           'price': price,
@@ -58,7 +82,8 @@ class RuleEngine:
           'should_trigger': should_trigger,
           'rules': {
               'momentum': momentum,
-              'volume_spike': volume_spike
+              'volume_spike': volume_spike,
+              'config': RuleEngine.config
           }
       }
 
@@ -115,3 +140,19 @@ async def trigger(payload: TriggerPayload):
           'source': payload.source
       })
     return {'accepted': result['should_trigger'], 'analysis': result}
+
+
+@app.post('/prefilter/config')
+async def configure_prefilter(payload: Dict):
+    momentum_weight = payload.get('momentumWeight')
+    volume_weight = payload.get('volumeWeight')
+    if momentum_weight is not None or volume_weight is not None:
+        mw = float(momentum_weight if momentum_weight is not None else RuleEngine.config['momentumWeight'])
+        vw = float(volume_weight if volume_weight is not None else RuleEngine.config['volumeWeight'])
+        if abs((mw + vw) - 1) > WEIGHT_SUM_TOLERANCE:
+            return {'updated': False, 'error': 'momentumWeight + volumeWeight must equal 1'}
+    try:
+        updated = RuleEngine.update_config(payload)
+    except ValueError as exc:
+        return {'updated': False, 'error': str(exc)}
+    return {'updated': True, 'config': updated}

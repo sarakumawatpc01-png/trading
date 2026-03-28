@@ -10,6 +10,9 @@ import { BrainService } from './services/brain.js';
 import { PipelineService } from './services/pipeline.js';
 import { IngestionService } from './services/ingestion.js';
 import { PythonClient } from './services/pythonClient.js';
+import { BacktesterService } from './services/backtester.js';
+import { DriftMonitorService } from './services/driftMonitor.js';
+import { PaperTraderService } from './services/paperTrader.js';
 import { createApp } from './app.js';
 import { InMemoryQueue, createRedisQueue } from './queue/queue.js';
 import { normalizeIndianSymbol } from './utils/symbol.js';
@@ -20,6 +23,9 @@ const logger = new Logger(store, broadcaster);
 const agents = new AgentService(store);
 const brain = new BrainService(store);
 const pythonClient = new PythonClient(config);
+const backtester = new BacktesterService(store);
+const paperTrader = new PaperTraderService(store);
+const driftMonitor = new DriftMonitorService(store, agents);
 
 const queue = config.useInMemoryQueue
   ? new InMemoryQueue(logger)
@@ -31,11 +37,13 @@ const pipeline = new PipelineService({
   logger,
   agents,
   brain,
-  broadcaster
+  broadcaster,
+  driftMonitor,
+  paperTrader
 });
 
 const ingestion = new IngestionService(store, logger);
-const app = createApp({ store, pipeline, logger, ingestion, agents, pythonClient });
+const app = createApp({ store, pipeline, logger, ingestion, agents, pythonClient, backtester });
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });

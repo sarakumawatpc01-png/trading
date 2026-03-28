@@ -1,43 +1,196 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { apiGet, apiPatch, apiPost } from '../lib/api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { apiGet, apiPatch, apiPost, DebouncedConfigWriter } from '../lib/api';
 
-type Setup = { id: string; symbol: string; decision: string; confidence: number; entryZone: string; stopLoss: number; targets: number[]; rationale: string; createdAt: string };
+type Setup = {
+  id: string;
+  symbol: string;
+  decision: string;
+  confidence: number;
+  effectiveConfidence?: number;
+  confidenceDecayFactor?: number;
+  entryZone: string;
+  stopLoss: number;
+  targets: number[];
+  rationale: string;
+  createdAt: string;
+};
 type Signal = { id: string; symbol: string; action: string; reason: string; createdAt: string };
 type Log = { id: string; level: string; message: string; context: Record<string, unknown>; createdAt: string };
 type AgentOutput = { id: string; agent: string; symbol: string; score: number; summary: string; createdAt: string };
+type PaperTrade = { id: string; setupId: string; symbol: string; status: 'OPEN' | 'CLOSED'; pnl?: number; createdAt: string };
+type PaperPortfolio = { balance: number; initialCapital: number; realizedPnl: number; openTrades: number };
+type DecisionAudit = { id: string; symbol: string; decision: string; ev: number; avg: number; stdev: number; createdAt: string };
+type RiskEvent = { id: string; eventType: string; drawdownPercent?: number; threshold?: number; action?: string; createdAt: string };
+type SymbolMetric = { sampleSize: number; winRate: number; avgWin: number; avgLoss: number; profitFactor: number; expectancy: number };
+type UiNotice = { type: 'success' | 'error' | 'info'; text: string };
+type RegimeMetric = { trendState: string; volBucket: string; eventDay: string; sampleSize: number; hitRate: number; expectancy: number; minSampleMet: boolean; confidenceInterval: { low: number; high: number } };
+type AgentContributionMetric = { agent: string; sampleSize: number; resolvedSampleSize: number; hitRate: number; contributionScore: number; realizedPnl: number };
+type SignalEffectivenessMetric = { symbol: string; decision: string; trendState: string; volBucket: string; eventDay: string; sampleSize: number; hitRate: number; expectancy: number };
+type BacktestResult = {
+  id?: string;
+  symbol: string;
+  sampleSize: number;
+  takeCount: number;
+  resolvedTakeCount?: number;
+  hitRate: number;
+  hitRateCiLow?: number;
+  hitRateCiHigh?: number;
+  minSampleMet?: boolean;
+  warnings?: string[];
+};
 
 type Config = {
   brainInstructions: string;
   agentWeights: Record<string, number>;
   apiConfig: Record<string, string>;
+  useEVBrain?: boolean;
+  evMinThreshold?: number;
+  minWinRate?: number;
+  minSymbolWinRateForTake?: number;
+  forceOverrideDisagreement?: boolean;
+  autoReweightEnabled?: boolean;
+  autoReweightMode?: string;
+  driftThreshold?: number;
+  paperModeEnabled?: boolean;
+  paperInitialCapital?: number;
+  autoShutdownDrawdownPercent?: number;
+  paperExecution?: {
+    slippageBps?: number;
+    feeBps?: number;
+    latencyMs?: number;
+  };
+  setupConfidenceDecayHours?: number;
+  stockOverrides?: Record<string, { slMultiplier?: number; targetFactors?: number[] }>;
+  prefilterConfig?: {
+    momentumModulus?: number;
+    volumeModulus?: number;
+    momentumWeight?: number;
+    volumeWeight?: number;
+    triggerThreshold?: number;
+  };
 };
+
+const PERCENT_SCALE = 100;
+const MAX_SYMBOL_METRICS = 8;
+const DEFAULT_MANUAL_ANALYSIS_PRICE = 120;
+const DEFAULT_WIN_RATE_GATE = 0.45;
+const DEFAULT_CONFIDENCE_DECAY_HOURS = 4;
+const DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT = 20;
 
 export default function Dashboard() {
   const [setups, setSetups] = useState<Setup[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutput[]>([]);
+  const [paperTrades, setPaperTrades] = useState<PaperTrade[]>([]);
+  const [paperPortfolio, setPaperPortfolio] = useState<PaperPortfolio | null>(null);
+  const [decisionAudits, setDecisionAudits] = useState<DecisionAudit[]>([]);
+  const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
+  const [symbolMetrics, setSymbolMetrics] = useState<Record<string, SymbolMetric>>({});
   const [query, setQuery] = useState('Analyze RELIANCE');
   const [manualSymbol, setManualSymbol] = useState('RELIANCE');
   const [config, setConfig] = useState<Config | null>(null);
   const [instruction, setInstruction] = useState('');
+  const [overrideSymbol, setOverrideSymbol] = useState('RELIANCE');
+  const [overrideSlMultiplier, setOverrideSlMultiplier] = useState('0.99');
+  const [overrideTargets, setOverrideTargets] = useState('1.01,1.02,1.03');
+  const [notice, setNotice] = useState<UiNotice | null>(null);
+  const [regimeMatrix, setRegimeMatrix] = useState<RegimeMetric[]>([]);
+  const [agentContribution, setAgentContribution] = useState<AgentContributionMetric[]>([]);
+  const [signalEffectiveness, setSignalEffectiveness] = useState<SignalEffectivenessMetric[]>([]);
+  const [latestBacktest, setLatestBacktest] = useState<BacktestResult | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [configDraft, setConfigDraft] = useState({
+    minSymbolWinRateForTake: DEFAULT_WIN_RATE_GATE,
+    setupConfidenceDecayHours: DEFAULT_CONFIDENCE_DECAY_HOURS,
+    autoShutdownDrawdownPercent: DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
+  });
+  const [loading, setLoading] = useState(false);
+  const configWriterRef = useRef<DebouncedConfigWriter | null>(null);
+  if (!configWriterRef.current) {
+    configWriterRef.current = new DebouncedConfigWriter();
+  }
 
   const load = async () => {
-    const [s1, s2, s3, s4, c] = await Promise.all([
+    setLoading(true);
+    const [s1, s2, s3, s4, c, trades, portfolio, audits, risks, regimes, contributions, effectiveness] = await Promise.all([
       apiGet<Setup[]>('/setups'),
       apiGet<Signal[]>('/signals'),
       apiGet<Log[]>('/logs'),
       apiGet<AgentOutput[]>('/agent-outputs'),
-      apiGet<Config>('/admin/config')
+      apiGet<Config>('/admin/config'),
+      apiGet<PaperTrade[]>('/paper/trades'),
+      apiGet<PaperPortfolio>('/paper/portfolio'),
+      apiGet<DecisionAudit[]>(`/admin/decision-audit/${encodeURIComponent(manualSymbol)}`).catch((error: unknown) => {
+        console.error('Failed to load decision audits', error);
+        setNotice({ type: 'error', text: 'Could not load decision audit right now.' });
+        return [];
+      }),
+      apiGet<RiskEvent[]>('/admin/risk-events').catch((error: unknown) => {
+        console.error('Failed to load risk events', error);
+        setNotice({ type: 'error', text: 'Could not load risk events right now.' });
+        return [];
+      }),
+      apiGet<RegimeMetric[]>('/admin/regime-matrix').catch(() => []),
+      apiGet<AgentContributionMetric[]>(`/admin/agent-contribution-metrics?symbol=${encodeURIComponent(manualSymbol)}`).catch(() => []),
+      apiGet<SignalEffectivenessMetric[]>(`/admin/signal-effectiveness?symbol=${encodeURIComponent(manualSymbol)}`).catch(() => [])
     ]);
     setSetups(s1);
     setSignals(s2);
     setLogs(s3);
     setAgentOutputs(s4);
     setConfig(c);
+    setPaperTrades(trades);
+    setPaperPortfolio(portfolio);
+    setDecisionAudits(audits);
+    setRiskEvents(risks);
+    setRegimeMatrix(regimes);
+    setAgentContribution(contributions);
+    setSignalEffectiveness(effectiveness);
     setInstruction(c.brainInstructions || '');
+    setConfigDraft({
+      minSymbolWinRateForTake: c.minSymbolWinRateForTake ?? DEFAULT_WIN_RATE_GATE,
+      setupConfidenceDecayHours: c.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS,
+      autoShutdownDrawdownPercent: c.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
+    });
+
+    const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
+    const metricsRows = await Promise.all(
+      symbols.map(async (symbol) => [symbol, await apiGet<SymbolMetric>(`/metrics/${encodeURIComponent(symbol)}`)] as const)
+    );
+    setSymbolMetrics(Object.fromEntries(metricsRows));
+    setLoading(false);
+  };
+
+  const runAction = async (action: () => Promise<void>, successText: string, errorText: string) => {
+    try {
+      await action();
+      setNotice({ type: 'success', text: successText });
+    } catch (error) {
+      console.error(error);
+      setNotice({ type: 'error', text: errorText });
+    }
+  };
+
+  const validateField = async (key: string, value: number) => {
+    try {
+      const result = await apiPost<{ ok: boolean; error: string | null }>('/admin/validate-config-field', { key, value });
+      setFieldErrors((prev) => ({ ...prev, [key]: result.ok ? '' : String(result.error || 'Invalid value') }));
+      return result.ok;
+    } catch (_error) {
+      setFieldErrors((prev) => ({ ...prev, [key]: 'Validation failed' }));
+      return false;
+    }
+  };
+
+  const queueConfigUpdate = async (key: string, value: number) => {
+    const ok = await validateField(key, value);
+    if (!ok) return;
+    setConfig((prev) => (prev ? { ...prev, [key]: value } : prev));
+    await configWriterRef.current?.queue({ [key]: value });
+    setNotice({ type: 'info', text: `${key} queued for save.` });
   };
 
   useEffect(() => {
@@ -49,10 +202,20 @@ export default function Dashboard() {
   }, []);
 
   const topAgents = useMemo(() => agentOutputs.slice(0, 12), [agentOutputs]);
+  const paperTakenCount = useMemo(() => paperTrades.length, [paperTrades]);
+  const paperClosed = useMemo(() => paperTrades.filter((trade) => trade.status === 'CLOSED'), [paperTrades]);
+  const paperWins = useMemo(() => paperClosed.filter((trade) => Number(trade.pnl || 0) > 0).length, [paperClosed]);
+  const paperHitRate = useMemo(() => (paperClosed.length ? (paperWins / paperClosed.length) * PERCENT_SCALE : 0), [paperClosed, paperWins]);
   const formatInr = useMemo(
     () => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }),
     []
   );
+
+  const drawdownPercent = useMemo(() => {
+    if (!paperPortfolio?.initialCapital) return 0;
+    return ((paperPortfolio.initialCapital - paperPortfolio.balance) / paperPortfolio.initialCapital) * 100;
+  }, [paperPortfolio]);
+
   const safeFormatInr = (value: unknown) => {
     const numeric = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(numeric) ? formatInr.format(numeric) : String(value ?? '');
@@ -64,22 +227,46 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold tracking-wide">ORACLE Trading Intelligence</h1>
         <div className="flex gap-2">
           <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button className="px-4 py-2 rounded bg-accent text-black font-semibold" onClick={async () => { await apiPost('/ai/query', { query }); }}>Ask AI</button>
+          <button className="px-4 py-2 rounded bg-accent text-black font-semibold" onClick={async () => runAction(async () => {
+            await apiPost('/ai/query', { query });
+            await load();
+          }, 'AI query sent.', 'Failed to submit AI query.')}>Ask AI</button>
         </div>
       </header>
+
+      {notice && (
+        <div className={`card ${notice.type === 'error' ? 'border border-rose-400 text-rose-300' : notice.type === 'success' ? 'border border-emerald-400 text-emerald-300' : 'border border-slate-500 text-slate-300'}`}>
+          {notice.text}
+        </div>
+      )}
+
+      {loading && <div className="text-xs text-slate-400">Refreshing dashboard...</div>}
+
+      {config?.paperModeEnabled === false && (
+        <div className="card border border-rose-400 text-rose-300">
+          Paper mode disabled. Drawdown: {drawdownPercent.toFixed(2)}%
+        </div>
+      )}
 
       <section className="grid md:grid-cols-3 gap-4">
         <div className="card">
           <h2 className="font-semibold mb-3">Live Setups</h2>
           <div className="space-y-3 max-h-72 overflow-auto">
-            {setups.map((s) => (
-              <details key={s.id} className="bg-slate-900 border border-slate-700 rounded p-2">
-                <summary className="cursor-pointer flex justify-between"><span>{s.symbol} · {s.decision}</span><span>{Math.round(s.confidence * 100)}%</span></summary>
+            {setups.map((setup) => (
+              <details key={setup.id} className="bg-slate-900 border border-slate-700 rounded p-2">
+                <summary className="cursor-pointer flex justify-between">
+                  <span>{setup.symbol} · {setup.decision}</span>
+                  <span>{Math.round((setup.effectiveConfidence ?? setup.confidence) * 100)}%</span>
+                </summary>
                 <div className="text-xs mt-2 space-y-1">
-                  <div>Entry: {s.entryZone}</div>
-                  <div>SL: {safeFormatInr(s.stopLoss)}</div>
-                  <div>Targets: {s.targets?.map((target) => safeFormatInr(target)).join(', ')}</div>
-                  <div>{s.rationale}</div>
+                  <div>Entry: {setup.entryZone}</div>
+                  <div>SL: {safeFormatInr(setup.stopLoss)}</div>
+                  <div>Targets: {setup.targets?.map((target) => safeFormatInr(target)).join(', ')}</div>
+                  <div>Raw confidence: {(setup.confidence * 100).toFixed(1)}%</div>
+                  {'effectiveConfidence' in setup && (
+                    <div>Effective confidence: {((setup.effectiveConfidence || 0) * 100).toFixed(1)}% · Decay: {setup.confidenceDecayFactor}</div>
+                  )}
+                  <div>{setup.rationale}</div>
                 </div>
               </details>
             ))}
@@ -89,10 +276,10 @@ export default function Dashboard() {
         <div className="card">
           <h2 className="font-semibold mb-3">Agent Outputs</h2>
           <div className="space-y-2 max-h-72 overflow-auto text-sm">
-            {topAgents.map((o) => (
-              <div key={o.id} className="border border-slate-700 rounded p-2">
-                <div className="font-medium">{o.agent} · {o.symbol}</div>
-                <div className="text-xs text-slate-300">Score: {o.score} · {o.summary}</div>
+            {topAgents.map((output) => (
+              <div key={output.id} className="border border-slate-700 rounded p-2">
+                <div className="font-medium">{output.agent} · {output.symbol}</div>
+                <div className="text-xs text-slate-300">Score: {output.score} · {output.summary}</div>
               </div>
             ))}
           </div>
@@ -103,9 +290,17 @@ export default function Dashboard() {
           <div className="text-sm space-y-2">
             <p>Signals generated: {signals.length}</p>
             <p>Recent logs: {logs.length}</p>
+            <p>Paper setups taken: {paperTakenCount}</p>
+            <p>Paper closed trades: {paperClosed.length} · Hit rate: {paperHitRate.toFixed(1)}%</p>
+            {paperPortfolio && (
+              <p>Paper PnL: {safeFormatInr(paperPortfolio.realizedPnl)} · Balance: {safeFormatInr(paperPortfolio.balance)}</p>
+            )}
             <div className="pt-2 flex gap-2">
               <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={manualSymbol} onChange={(e) => setManualSymbol(e.target.value.toUpperCase())} />
-              <button className="px-4 py-2 rounded bg-sky-500" onClick={async () => { await apiPost('/admin/manual-analysis', { symbol: manualSymbol, price: 120 }); }}>Trigger Analysis</button>
+              <button className="px-4 py-2 rounded bg-sky-500" onClick={async () => runAction(async () => {
+                await apiPost('/admin/manual-analysis', { symbol: manualSymbol, price: DEFAULT_MANUAL_ANALYSIS_PRICE });
+                await load();
+              }, 'Manual analysis queued.', 'Failed to trigger manual analysis.')}>Trigger Analysis</button>
             </div>
           </div>
         </div>
@@ -113,26 +308,112 @@ export default function Dashboard() {
 
       <section className="grid md:grid-cols-2 gap-4">
         <div className="card">
-          <h2 className="font-semibold mb-3">Signal History</h2>
-          <div className="space-y-2 max-h-72 overflow-auto text-sm">
-            {signals.map((s) => (
-              <div key={s.id} className="border border-slate-700 rounded p-2">
-                <div>{s.symbol} · <span className="font-semibold">{s.action}</span></div>
-                <div className="text-xs text-slate-300">{s.reason}</div>
+          <h2 className="font-semibold mb-3">Symbol Stats</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-sm">
+            {Object.entries(symbolMetrics).map(([symbol, metric]) => (
+              <div key={symbol} className="border border-slate-700 rounded p-2">
+                <div className="font-medium">{symbol}</div>
+                <div className="text-xs text-slate-300">
+                  sample {metric.sampleSize} · win rate {(metric.winRate * 100).toFixed(1)}% · PF {metric.profitFactor.toFixed(2)} · expectancy {metric.expectancy.toFixed(2)}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
         <div className="card">
-          <h2 className="font-semibold mb-3">System Logs</h2>
-          <div className="space-y-2 max-h-72 overflow-auto text-xs">
-            {logs.map((l) => (
-              <div key={l.id} className="border border-slate-700 rounded p-2">
-                <div className="uppercase">{l.level} · {l.message}</div>
-                <div className="text-slate-300">{JSON.stringify(l.context)}</div>
+          <h2 className="font-semibold mb-3">Decision Audit ({manualSymbol})</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {decisionAudits.map((audit) => (
+              <div key={audit.id} className="border border-slate-700 rounded p-2">
+                <div>{audit.symbol} · {audit.decision} · ev {audit.ev}</div>
+                <div className="text-slate-300">avg {audit.avg} · stdev {audit.stdev} · {audit.createdAt}</div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid md:grid-cols-3 gap-4">
+        <div className="card">
+          <h2 className="font-semibold mb-3">Regime Matrix</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {regimeMatrix.slice(0, 12).map((row) => (
+              <div key={`${row.trendState}-${row.volBucket}-${row.eventDay}`} className="border border-slate-700 rounded p-2">
+                <div>{row.trendState} · {row.volBucket} · {row.eventDay}</div>
+                <div className="text-slate-300">
+                  n={row.sampleSize} · hit {(row.hitRate * 100).toFixed(1)}% [{(row.confidenceInterval.low * 100).toFixed(1)}-{(row.confidenceInterval.high * 100).toFixed(1)}] · exp {row.expectancy.toFixed(2)}
+                </div>
+                {!row.minSampleMet && <div className="text-amber-300">Low sample size</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <h2 className="font-semibold mb-3">Agent Contribution ({manualSymbol})</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {agentContribution.slice(0, 12).map((row) => (
+              <div key={row.agent} className="border border-slate-700 rounded p-2">
+                <div>{row.agent}</div>
+                <div className="text-slate-300">n={row.sampleSize}/{row.resolvedSampleSize} · hit {(row.hitRate * 100).toFixed(1)}% · contrib {row.contributionScore.toFixed(2)} · pnl {safeFormatInr(row.realizedPnl)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <h2 className="font-semibold mb-3">Signal Effectiveness ({manualSymbol})</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {signalEffectiveness.slice(0, 12).map((row) => (
+              <div key={`${row.symbol}-${row.decision}-${row.trendState}-${row.volBucket}-${row.eventDay}-${row.sampleSize}`} className="border border-slate-700 rounded p-2">
+                <div>{row.symbol} · {row.decision}</div>
+                <div className="text-slate-300">{row.trendState}/{row.volBucket}/{row.eventDay} · n={row.sampleSize} · hit {(row.hitRate * 100).toFixed(1)}% · exp {row.expectancy.toFixed(2)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid md:grid-cols-2 gap-4">
+        <div className="card">
+          <h2 className="font-semibold mb-3">Risk Events</h2>
+          <div className="space-y-2 max-h-64 overflow-auto text-xs">
+            {riskEvents.map((risk) => (
+              <div key={risk.id} className="border border-slate-700 rounded p-2">
+                <div>{risk.eventType} · {risk.action}</div>
+                <div className="text-slate-300">DD {risk.drawdownPercent ?? '-'} / threshold {risk.threshold ?? '-'} · {risk.createdAt}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="font-semibold mb-3">Stock Override</h2>
+          <div className="space-y-2 text-sm">
+            <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideSymbol} onChange={(e) => setOverrideSymbol(e.target.value.toUpperCase())} placeholder="RELIANCE.NS" />
+            <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideSlMultiplier} onChange={(e) => setOverrideSlMultiplier(e.target.value)} placeholder="SL multiplier" />
+            <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={overrideTargets} onChange={(e) => setOverrideTargets(e.target.value)} placeholder="1.01,1.02,1.03" />
+            <button
+              className="px-4 py-2 rounded bg-indigo-500"
+              onClick={async () => runAction(async () => {
+                const symbol = overrideSymbol.endsWith('.NS') ? overrideSymbol : `${overrideSymbol}.NS`;
+                const targets = overrideTargets.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);
+                if (!targets.length) {
+                  setNotice({ type: 'error', text: 'Please provide at least one valid target.' });
+                  return;
+                }
+                await apiPatch('/admin/config', {
+                  stockOverrides: {
+                    [symbol]: {
+                      slMultiplier: Number(overrideSlMultiplier),
+                      targetFactors: targets
+                    }
+                  }
+                });
+                await load();
+              }, 'Stock override saved.', 'Failed to save stock override.')}
+            >
+              Save Override
+            </button>
           </div>
         </div>
       </section>
@@ -143,14 +424,133 @@ export default function Dashboard() {
           <div className="grid md:grid-cols-2 gap-4 text-sm">
             <div className="space-y-2">
               <h3 className="font-medium">Brain Instructions</h3>
-              <textarea className="w-full h-28 p-2 rounded bg-slate-800 border border-slate-600" value={instruction} onChange={(e) => setInstruction(e.target.value)} />
-              <button className="px-4 py-2 rounded bg-amber-500 text-black font-semibold" onClick={async () => { await apiPatch('/admin/config', { brainInstructions: instruction }); await load(); }}>Save Instructions</button>
+              <textarea className="w-full h-24 p-2 rounded bg-slate-800 border border-slate-600" value={instruction} onChange={(e) => setInstruction(e.target.value)} />
+              <button className="px-4 py-2 rounded bg-amber-500 text-black font-semibold" onClick={async () => runAction(async () => {
+                await apiPatch('/admin/config', { brainInstructions: instruction });
+                await load();
+              }, 'Brain instructions saved.', 'Failed to save brain instructions.')}>Save Instructions</button>
             </div>
+
             <div className="space-y-2">
-              <h3 className="font-medium">API Config</h3>
-              <pre className="bg-slate-900 rounded p-2 border border-slate-700 overflow-auto">{JSON.stringify(config.apiConfig, null, 2)}</pre>
-              <button className="px-4 py-2 rounded bg-purple-500" onClick={async () => { await apiPost('/admin/ingest/news', {}); await apiPost('/admin/ingest/company', {}); await load(); }}>Run Ingestion</button>
+              <h3 className="font-medium">Controls</h3>
+              <button className="px-4 py-2 rounded bg-emerald-600 mr-2" onClick={async () => runAction(async () => {
+                setConfig((prev) => (prev ? { ...prev, forceOverrideDisagreement: !prev.forceOverrideDisagreement } : prev));
+                await apiPatch('/admin/config', { forceOverrideDisagreement: !config.forceOverrideDisagreement });
+                await load();
+              }, 'Disagreement override updated.', 'Failed to update disagreement override.')}>
+                forceOverrideDisagreement: {String(config.forceOverrideDisagreement)}
+              </button>
+              <button className="px-4 py-2 rounded bg-cyan-600 mr-2" onClick={async () => runAction(async () => {
+                const nextMode = config.autoReweightMode === 'winrate-percentile' ? 'drift' : 'winrate-percentile';
+                setConfig((prev) => (prev ? { ...prev, autoReweightMode: nextMode } : prev));
+                await apiPatch('/admin/config', { autoReweightMode: nextMode });
+                await load();
+              }, 'Auto reweight mode updated.', 'Failed to update auto reweight mode.')}>
+                autoReweightMode: {config.autoReweightMode || 'drift'}
+              </button>
+              <button className="px-4 py-2 rounded bg-purple-500" onClick={async () => runAction(async () => {
+                await apiPost('/admin/batch-actions', {
+                  actions: [
+                    { type: 'patchConfig', payload: { paperExecution: config.paperExecution || {} } }
+                  ]
+                });
+                await Promise.all([apiPost('/admin/ingest/news', {}), apiPost('/admin/ingest/company', {})]);
+                await load();
+              }, 'Ingestion executed (batched update + refresh).', 'Failed to run ingestion.')}>Run Ingestion</button>
+              <button className="px-4 py-2 rounded bg-slate-600 ml-2" onClick={async () => runAction(async () => {
+                await apiPost('/prefilter/config', config.prefilterConfig || {});
+                await load();
+              }, 'Prefilter config pushed.', 'Failed to push prefilter config.')}>
+                Push Prefilter Config
+              </button>
+              <div className="pt-2">
+                <label className="block mb-1">Min win rate for TAKE</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  value={configDraft.minSymbolWinRateForTake}
+                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, minSymbolWinRateForTake: Number(event.target.value) }))}
+                  onBlur={async () => runAction(async () => {
+                    await queueConfigUpdate('minSymbolWinRateForTake', Number(configDraft.minSymbolWinRateForTake));
+                  }, 'Min win-rate gate updated.', 'Failed to update min win-rate gate.')}
+                />
+                {fieldErrors.minSymbolWinRateForTake && <div className="text-xs text-rose-300">{fieldErrors.minSymbolWinRateForTake}</div>}
+              </div>
+              <div>
+                <label className="block mb-1">Setup confidence decay (hours)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  value={configDraft.setupConfidenceDecayHours}
+                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, setupConfidenceDecayHours: Number(event.target.value) }))}
+                  onBlur={async () => runAction(async () => {
+                    await queueConfigUpdate('setupConfidenceDecayHours', Number(configDraft.setupConfidenceDecayHours));
+                  }, 'Confidence decay updated.', 'Failed to update confidence decay.')}
+                />
+                {fieldErrors.setupConfidenceDecayHours && <div className="text-xs text-rose-300">{fieldErrors.setupConfidenceDecayHours}</div>}
+              </div>
+              <div>
+                <label className="block mb-1">Auto shutdown drawdown %</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  value={configDraft.autoShutdownDrawdownPercent}
+                  onChange={(event) => setConfigDraft((prev) => ({ ...prev, autoShutdownDrawdownPercent: Number(event.target.value) }))}
+                  onBlur={async () => runAction(async () => {
+                    await queueConfigUpdate('autoShutdownDrawdownPercent', Number(configDraft.autoShutdownDrawdownPercent));
+                  }, 'Drawdown shutdown threshold updated.', 'Failed to update drawdown shutdown threshold.')}
+                />
+                {fieldErrors.autoShutdownDrawdownPercent && <div className="text-xs text-rose-300">{fieldErrors.autoShutdownDrawdownPercent}</div>}
+              </div>
+              <div>
+                <label className="block mb-1">Paper slippage (bps)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.paperExecution?.slippageBps ?? 3}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { paperExecution: { slippageBps: Number(event.target.value) } });
+                    await load();
+                  }, 'Paper slippage updated.', 'Failed to update paper slippage.')}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">Paper fee (bps)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.paperExecution?.feeBps ?? 2}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { paperExecution: { feeBps: Number(event.target.value) } });
+                    await load();
+                  }, 'Paper fee updated.', 'Failed to update paper fee.')}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">Paper latency (ms)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.paperExecution?.latencyMs ?? 120}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { paperExecution: { latencyMs: Number(event.target.value) } });
+                    await load();
+                  }, 'Paper latency updated.', 'Failed to update paper latency.')}
+                />
+              </div>
             </div>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <h2 className="font-semibold mb-3">Backtest Integrity</h2>
+        <div className="flex gap-2 mb-3">
+          <button className="px-4 py-2 rounded bg-sky-600" onClick={async () => runAction(async () => {
+            const result = await apiPost<BacktestResult>('/admin/backtest', { symbol: manualSymbol, lookback: 200 });
+            setLatestBacktest(result);
+          }, 'Backtest started.', 'Failed to run backtest.')}>Run Backtest</button>
+        </div>
+        {latestBacktest && (
+          <div className="text-sm space-y-1">
+            <div>{latestBacktest.symbol} · sample {latestBacktest.sampleSize} · TAKE {latestBacktest.takeCount} · resolved {latestBacktest.resolvedTakeCount ?? 0}</div>
+            <div>Hit rate {(latestBacktest.hitRate * 100).toFixed(1)}% {latestBacktest.hitRateCiLow !== undefined && latestBacktest.hitRateCiHigh !== undefined ? `[${(latestBacktest.hitRateCiLow * 100).toFixed(1)}-${(latestBacktest.hitRateCiHigh * 100).toFixed(1)}]` : ''}</div>
+            {latestBacktest.minSampleMet === false && <div className="text-amber-300">Sample guard: insufficient sample size</div>}
+            {(latestBacktest.warnings || []).map((warning) => <div key={warning} className="text-amber-300">{warning}</div>)}
           </div>
         )}
       </section>
