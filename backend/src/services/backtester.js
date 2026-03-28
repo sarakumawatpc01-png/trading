@@ -1,3 +1,5 @@
+const BACKTEST_CONFIDENCE_WIN_THRESHOLD = 0.6;
+
 export class BacktesterService {
   constructor(store) {
     this.store = store;
@@ -21,7 +23,7 @@ export class BacktesterService {
     }
 
     const takeSetups = setups.filter((s) => s.decision === 'TAKE');
-    const pseudoWins = takeSetups.filter((s) => s.confidence >= 0.6).length;
+    const pseudoWins = takeSetups.filter((s) => s.confidence >= BACKTEST_CONFIDENCE_WIN_THRESHOLD).length;
     const hitRate = takeSetups.length ? pseudoWins / takeSetups.length : 0;
     const avgConfidence = setups.reduce((acc, s) => acc + Number(s.confidence || 0), 0) / setups.length;
 

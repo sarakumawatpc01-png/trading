@@ -41,13 +41,16 @@ export class BrainService {
     const thresholdTake = Number(config.takeThreshold ?? DEFAULT_TAKE_THRESHOLD);
     const thresholdSkip = Number(config.skipThreshold ?? DEFAULT_SKIP_THRESHOLD);
     const fallbackDecision = disagreement ? 'WAIT' : avg >= thresholdTake ? 'TAKE' : avg <= thresholdSkip ? 'SKIP' : 'WAIT';
-    const evDecision = disagreement
-      ? 'WAIT'
-      : ev >= Number(config.evMinThreshold ?? 0.12) && stats.winRate >= Number(config.minWinRate ?? 0.45)
-        ? 'TAKE'
-        : ev < 0
-          ? 'SKIP'
-          : 'WAIT';
+    let evDecision = 'WAIT';
+    const evMinThreshold = Number(config.evMinThreshold ?? 0.12);
+    const minWinRate = Number(config.minWinRate ?? 0.45);
+    if (disagreement) {
+      evDecision = 'WAIT';
+    } else if (ev >= evMinThreshold && stats.winRate >= minWinRate) {
+      evDecision = 'TAKE';
+    } else if (ev < 0) {
+      evDecision = 'SKIP';
+    }
     const decision = useEVBrain ? evDecision : fallbackDecision;
 
     const entryLow = Number((triggerContext?.price * ENTRY_LOW_FACTOR).toFixed(2));

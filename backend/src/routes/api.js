@@ -181,16 +181,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
         symbol: z.string().min(1),
         lookback: z.number().int().positive().max(5000).optional()
       }).parse(req.body || {});
-      const result = backtester
-        ? await backtester.runBacktest({ symbol: normalizeIndianSymbol(body.symbol), lookback: body.lookback || 200 })
-        : await store.addBacktestResult({
-            symbol: normalizeIndianSymbol(body.symbol),
-            lookback: body.lookback || 200,
-            sampleSize: 0,
-            takeCount: 0,
-            hitRate: 0,
-            avgConfidence: 0
-          });
+      const result = await runBacktestOrFallback(normalizeIndianSymbol(body.symbol), body.lookback || 200);
       res.status(202).json(result);
     } catch (err) { next(err); }
   });
@@ -262,3 +253,14 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
 
   return router;
 }
+  async function runBacktestOrFallback(symbol, lookback) {
+    if (backtester) return backtester.runBacktest({ symbol, lookback });
+    return store.addBacktestResult({
+      symbol,
+      lookback,
+      sampleSize: 0,
+      takeCount: 0,
+      hitRate: 0,
+      avgConfidence: 0
+    });
+  }

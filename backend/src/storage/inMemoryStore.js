@@ -14,6 +14,8 @@ export class InMemoryStore {
     this.stocks = [];
     this.signals = [];
     this.setups = [];
+    this.setupById = new Map();
+    this.setupsBySymbol = new Map();
     this.agentOutputs = [];
     this.agentSpecs = {};
     this.outcomes = [];
@@ -72,10 +74,13 @@ export class InMemoryStore {
   async addSetup(setup) {
     const row = { id: uid('setup'), ...setup, createdAt: nowIstLocal() };
     this.setups.unshift(row);
+    this.setupById.set(row.id, row);
+    if (!this.setupsBySymbol.has(row.symbol)) this.setupsBySymbol.set(row.symbol, []);
+    this.setupsBySymbol.get(row.symbol).unshift(row);
     return row;
   }
   async listSetups(limit = 50) { return this.setups.slice(0, limit); }
-  async getSetupById(id) { return this.setups.find((x) => x.id === id) || null; }
+  async getSetupById(id) { return this.setupById.get(id) || null; }
 
   async addAgentOutputs(outputs) {
     const items = outputs.map((o) => ({ id: uid('agent_out'), ...o, createdAt: nowIstLocal() }));
@@ -200,7 +205,7 @@ export class InMemoryStore {
   }
 
   async getRecentSetupsBySymbol(symbol, max = MAX_SETUP_LOOKBACK) {
-    return this.setups.filter((s) => s.symbol === symbol).slice(0, max);
+    return (this.setupsBySymbol.get(symbol) || []).slice(0, max);
   }
 
   async openPaperTrade(data) {
