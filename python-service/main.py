@@ -201,7 +201,10 @@ async def refresh_bucket_cache_once():
 
 async def refresh_bucket_cache_loop():
     while True:
-        await refresh_bucket_cache_once()
+        try:
+            await refresh_bucket_cache_once()
+        except Exception:
+            pass
         await asyncio.sleep(CONFIG_REFRESH_SEC)
 
 
@@ -212,19 +215,25 @@ async def send_trigger(payload: Dict):
 
 async def prefilter_bucket_loop(bucket: str, interval_sec: int):
     while True:
-      if is_indian_market_open():
-          async with BUCKET_LOCK:
-              symbols_ref = BUCKET_CACHE.get(bucket, [])
-          symbols = list(symbols_ref)
-          for sym in symbols:
-              symbol = normalize_indian_symbol(sym)
-              price = MOCK_BASE_PRICE + (sum(ord(c) for c in symbol) % MOCK_PRICE_VARIANCE)
-              result = RuleEngine.evaluate(symbol, float(price))
-              if result['should_trigger']:
-                  await send_trigger({
-                      'symbol': symbol,
-                      'price': result['price']
-                  })
+      try:
+          if is_indian_market_open():
+              async with BUCKET_LOCK:
+                  symbols_ref = BUCKET_CACHE.get(bucket, [])
+              symbols = list(symbols_ref)
+              for sym in symbols:
+                  symbol = normalize_indian_symbol(sym)
+                  price = MOCK_BASE_PRICE + (sum(ord(c) for c in symbol) % MOCK_PRICE_VARIANCE)
+                  result = RuleEngine.evaluate(symbol, float(price))
+                  if result['should_trigger']:
+                      try:
+                          await send_trigger({
+                              'symbol': symbol,
+                              'price': result['price']
+                          })
+                      except Exception:
+                          pass
+      except Exception:
+          pass
       await asyncio.sleep(interval_sec)
 
 
