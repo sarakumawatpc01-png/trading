@@ -232,10 +232,10 @@ test('batch-actions rollback all changes on failure', async () => {
 test('caps oversized list limits to guard API resources', async () => {
   const { app } = buildApp();
 
-  for (let i = 0; i < 600; i++) {
-    await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 + i });
+  for (let iteration = 0; iteration < 600; iteration++) {
+    await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 + iteration });
   }
-  await new Promise((r) => setTimeout(r, 100));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   const setupsRes = await request(app).get('/api/setups?limit=1000000');
   assert.equal(setupsRes.status, 200);
