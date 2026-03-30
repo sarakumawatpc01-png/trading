@@ -228,3 +228,16 @@ test('batch-actions rollback all changes on failure', async () => {
   assert.equal(afterConfig.status, 200);
   assert.equal(afterConfig.body.minWinRate, baselineMinWinRate);
 });
+
+test('caps oversized list limits to guard API resources', async () => {
+  const { app } = buildApp();
+
+  for (let i = 0; i < 600; i++) {
+    await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 + i });
+  }
+  await new Promise((r) => setTimeout(r, 100));
+
+  const setupsRes = await request(app).get('/api/setups?limit=1000000');
+  assert.equal(setupsRes.status, 200);
+  assert.ok(setupsRes.body.length <= 500);
+});

@@ -38,19 +38,23 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   });
 
   router.get('/setups', async (req, res) => {
-    res.json(await store.listSetups(Number(req.query.limit || 50)));
+    const limit = clampLimit(req.query.limit, 50, 500);
+    res.json(await store.listSetups(limit));
   });
 
   router.get('/signals', async (req, res) => {
-    res.json(await store.listSignals(Number(req.query.limit || 50)));
+    const limit = clampLimit(req.query.limit, 50, 500);
+    res.json(await store.listSignals(limit));
   });
 
   router.get('/agent-outputs', async (req, res) => {
-    res.json(await store.listAgentOutputs(Number(req.query.limit || 200)));
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    res.json(await store.listAgentOutputs(limit));
   });
 
   router.get('/logs', async (req, res) => {
-    res.json(await store.listLogs(Number(req.query.limit || 200)));
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    res.json(await store.listLogs(limit));
   });
 
   router.get('/agents', (_req, res) => {
@@ -277,22 +281,24 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.get('/admin/signal-effectiveness', async (req, res) => {
     const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : undefined;
     const days = Number(req.query.days || 30);
-    const limit = Number(req.query.limit || 20);
+    const limit = clampLimit(req.query.limit, 20, 200);
     res.json(await store.getSignalEffectiveness({ symbol, days, limit }));
   });
 
   router.get('/admin/decision-audit/:symbol', async (req, res) => {
     const symbol = normalizeIndianSymbol(req.params.symbol);
-    const limit = Number(req.query.limit || 50);
+    const limit = clampLimit(req.query.limit, 50, 500);
     res.json(await store.listDecisionAuditsBySymbol(symbol, limit));
   });
 
   router.get('/admin/risk-events', async (req, res) => {
-    res.json(await store.listRiskEvents(Number(req.query.limit || 200)));
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    res.json(await store.listRiskEvents(limit));
   });
 
   router.get('/outcomes', async (req, res) => {
-    res.json(await store.listOutcomes(Number(req.query.limit || 200)));
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    res.json(await store.listOutcomes(limit));
   });
 
   router.post('/setups/:id/outcome', async (req, res, next) => {
@@ -327,7 +333,8 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   });
 
   router.get('/admin/drift-logs', async (req, res) => {
-    res.json(await store.listDriftLogs(Number(req.query.limit || 200)));
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    res.json(await store.listDriftLogs(limit));
   });
 
   router.post('/admin/reweight', async (req, res, next) => {
@@ -339,7 +346,8 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   });
 
   router.get('/paper/trades', async (req, res) => {
-    res.json(await store.listPaperTrades(Number(req.query.limit || 200)));
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    res.json(await store.listPaperTrades(limit));
   });
 
   router.get('/paper/portfolio', async (_req, res) => {
@@ -391,6 +399,12 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       hitRate: 0,
       avgConfidence: 0
     });
+  }
+
+  function clampLimit(value, fallback, max) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(Math.floor(parsed), max);
   }
 
   router.use((err, _req, res, _next) => {
