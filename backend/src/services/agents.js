@@ -23,10 +23,13 @@ export class AgentService {
   async runAll({ symbol, context, runId }) {
     const config = await this.store.getConfig();
     const outputs = [];
+    const regime = context?.regime || {};
     for (const agent of AGENTS) {
       const spec = await this.store.getAgentSpec(agent);
       const base = seededScore(`${symbol}:${agent}:${JSON.stringify(context).slice(0, 100)}`);
-      const weight = Number(config.agentWeights?.[agent] ?? 1);
+      const baseWeight = Number(config.agentWeights?.[agent] ?? 1);
+      const reliabilityWeight = Number(this.store.getReliabilityWeight(agent, regime) || 1);
+      const weight = Number((baseWeight * reliabilityWeight).toFixed(3));
       const score = Math.max(0, Math.min(10, Number((base * weight).toFixed(2))));
       outputs.push({
         runId,
@@ -40,7 +43,8 @@ export class AgentService {
           trace: 'deterministic-mock-v1',
           instruction: spec?.instruction || null,
           knowledge: spec?.knowledge || null,
-          skill: spec?.skill || {}
+          skill: spec?.skill || {},
+          reliabilityWeight
         }
       });
     }

@@ -228,3 +228,38 @@ test('batch-actions rollback all changes on failure', async () => {
   assert.equal(afterConfig.status, 200);
   assert.equal(afterConfig.body.minWinRate, baselineMinWinRate);
 });
+
+test('caps oversized list limits to guard API resources', async () => {
+  const { app } = buildApp();
+
+  for (let iteration = 0; iteration < 600; iteration++) {
+    await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 + iteration });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const setupsRes = await request(app).get('/api/setups?limit=1000000');
+  assert.equal(setupsRes.status, 200);
+  assert.ok(setupsRes.body.length <= 500);
+
+  const cappedRes = await request(app).get('/api/setups?limit=501');
+  assert.equal(cappedRes.status, 200);
+  assert.ok(cappedRes.body.length <= 500);
+});
+
+test('provides walk-forward backtest output', async () => {
+  const { app } = buildApp();
+  for (let i = 0; i < 90; i += 1) {
+    await request(app).post('/api/admin/manual-analysis').send({ symbol: 'RELIANCE', price: 100 + i });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const setupsRes = await request(app).get('/api/setups?limit=120');
+  for (const setup of setupsRes.body.slice(0, 60)) {
+    await request(app)
+      .post(`/api/setups/${setup.id}/outcome`)
+      .send({ entryPrice: Number(setup.triggerPrice || 100), exitPrice: Number(setup.triggerPrice || 100) * 1.01, quantity: 1, exitReason: 'test' });
+  }
+  const res = await request(app).post('/api/admin/walk-forward').send({ symbol: 'RELIANCE', lookback: 120, trainWindow: 30, testWindow: 15 });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.symbol, 'RELIANCE.NS');
+  assert.ok(Array.isArray(res.body.windows));
+});

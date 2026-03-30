@@ -61,3 +61,11 @@ export function createDefaultAgentSpecs() {
     ]))
   );
 }
+
+export const AGENT_INDEX = Object.freeze(
+  AGENTS.map((agentName) => ({
+    name: agentName,
+    path: `agentSpecs/${agentName}.json`,
+    required: ['instruction', 'knowledge', 'skill']
+  }))
+);

@@ -22,6 +22,10 @@ const TREND_WEAK_THRESHOLD = 5.5;
 const TREND_RANGE_THRESHOLD = 4.5;
 const HIGH_VOL_STDEV_THRESHOLD = 2.5;
 const NORMAL_VOL_STDEV_THRESHOLD = 1.5;
+const DEFAULT_MIN_RISK_REWARD = 1.2;
+const DEFAULT_MAX_COST_BPS = 15;
+const DEFAULT_MIN_CONSENSUS = 0.5;
+const DEFAULT_NO_TRADE_VOL_THRESHOLD = 2.9;
 
 function detectRegime({ symbol, avg, stdev, triggerContext = {}, eventCalendar = [] }) {
   let trendState = 'RANGE';
@@ -120,12 +124,46 @@ export class BrainService {
 
     const eventCalendar = Array.isArray(config.eventCalendar) ? config.eventCalendar : [];
     const regime = detectRegime({ symbol, avg, stdev, triggerContext, eventCalendar });
+    const calibratedConfidence = this.store.applyConfidenceCalibration(rawConfidence, config.confidenceCalibration || {});
+    const minConsensus = Number(config.noTradeMinConsensus ?? DEFAULT_MIN_CONSENSUS);
+    const noTradeVolThreshold = Number(config.noTradeHighVolStdevThreshold ?? DEFAULT_NO_TRADE_VOL_THRESHOLD);
+    if (decision === 'TAKE' && (avg / 10) < minConsensus) {
+      decision = 'WAIT';
+      decisionReason = 'no_trade_low_consensus';
+    }
+    if (decision === 'TAKE' && regime.volBucket === 'HIGH_VOL' && stdev >= noTradeVolThreshold) {
+      decision = 'WAIT';
+      decisionReason = 'no_trade_high_volatility';
+    }
+
+    const targetOne = Number(targets?.[0] || 0);
+    const rawRiskPerUnit = Number(triggerContext?.price || 0) - Number(stopLoss || 0);
+    const riskPerUnit = Math.max(0, rawRiskPerUnit);
+    const rewardPerUnit = Math.max(0, targetOne - Number(triggerContext?.price || 0));
+    const invalidRiskGeometry = riskPerUnit <= 0 || rewardPerUnit <= 0;
+    if (decision === 'TAKE' && invalidRiskGeometry) {
+      decision = 'WAIT';
+      decisionReason = 'invalid_risk_geometry';
+    }
+    const riskReward = riskPerUnit > 0 ? rewardPerUnit / riskPerUnit : 0;
+    const minRiskReward = Number(config.setupMinRiskReward ?? DEFAULT_MIN_RISK_REWARD);
+    if (decision === 'TAKE' && riskReward < minRiskReward) {
+      decision = 'WAIT';
+      decisionReason = 'risk_reward_gate';
+    }
+    const estimatedCostBps = Number((Number(config.paperExecution?.slippageBps || 0) + Number(config.paperExecution?.feeBps || 0)).toFixed(2));
+    const maxEstimatedCostBps = Number(config.maxEstimatedCostBps ?? DEFAULT_MAX_COST_BPS);
+    if (decision === 'TAKE' && estimatedCostBps > maxEstimatedCostBps) {
+      decision = 'WAIT';
+      decisionReason = 'cost_gate';
+    }
 
     const setup = {
       runId,
       symbol,
       decision,
       confidence: rawConfidence,
+      calibratedConfidence,
       effectiveConfidence,
       confidenceDecayFactor,
       entryZone: `${entryLow}-${entryHigh}`,
@@ -136,6 +174,8 @@ export class BrainService {
       regime,
       winRate: stats.winRate,
       profitFactor: stats.profitFactor,
+      riskReward: Number(riskReward.toFixed(3)),
+      estimatedCostBps,
       rationale: `${decision} with avg=${avg.toFixed(2)} stdev=${stdev.toFixed(2)} ev=${ev.toFixed(3)} winRate=${stats.winRate.toFixed(3)} confidence=${effectiveConfidence.toFixed(3)} reason=${decisionReason}. Instructions: ${config.brainInstructions}`
     };
 

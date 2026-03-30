@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { apiGet, apiPatch, apiPost, DebouncedConfigWriter } from '../lib/api';
 
 type Setup = {
@@ -8,11 +9,14 @@ type Setup = {
   symbol: string;
   decision: string;
   confidence: number;
+  calibratedConfidence?: number;
   effectiveConfidence?: number;
   confidenceDecayFactor?: number;
   entryZone: string;
   stopLoss: number;
   targets: number[];
+  riskReward?: number;
+  estimatedCostBps?: number;
   rationale: string;
   createdAt: string;
 };
@@ -62,6 +66,10 @@ type Config = {
     latencyMs?: number;
   };
   setupConfidenceDecayHours?: number;
+  setupMinRiskReward?: number;
+  maxEstimatedCostBps?: number;
+  noTradeMinConsensus?: number;
+  noTradeHighVolStdevThreshold?: number;
   stockOverrides?: Record<string, { slMultiplier?: number; targetFactors?: number[] }>;
   prefilterConfig?: {
     momentumModulus?: number;
@@ -225,12 +233,13 @@ export default function Dashboard() {
     <div className="min-h-screen bg-bg text-slate-100 p-4 md:p-8 space-y-6">
       <header className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
         <h1 className="text-2xl font-bold tracking-wide">ORACLE Trading Intelligence</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="px-4 py-2 rounded bg-accent text-black font-semibold" onClick={async () => runAction(async () => {
             await apiPost('/ai/query', { query });
             await load();
           }, 'AI query sent.', 'Failed to submit AI query.')}>Ask AI</button>
+          <Link href="/paper-trades" className="px-4 py-2 rounded bg-slate-700 text-sm">Paper Trades</Link>
         </div>
       </header>
 
@@ -263,8 +272,14 @@ export default function Dashboard() {
                   <div>SL: {safeFormatInr(setup.stopLoss)}</div>
                   <div>Targets: {setup.targets?.map((target) => safeFormatInr(target)).join(', ')}</div>
                   <div>Raw confidence: {(setup.confidence * 100).toFixed(1)}%</div>
+                  {'calibratedConfidence' in setup && (
+                    <div>Calibrated confidence: {((setup.calibratedConfidence || 0) * 100).toFixed(1)}%</div>
+                  )}
                   {'effectiveConfidence' in setup && (
                     <div>Effective confidence: {((setup.effectiveConfidence || 0) * 100).toFixed(1)}% · Decay: {setup.confidenceDecayFactor}</div>
+                  )}
+                  {'riskReward' in setup && (
+                    <div>Risk/Reward: {Number(setup.riskReward || 0).toFixed(2)} · Cost: {Number(setup.estimatedCostBps || 0).toFixed(2)} bps</div>
                   )}
                   <div>{setup.rationale}</div>
                 </div>
@@ -532,6 +547,50 @@ export default function Dashboard() {
                   }, 'Paper latency updated.', 'Failed to update paper latency.')}
                 />
               </div>
+              <div>
+                <label className="block mb-1">Min Risk/Reward</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.setupMinRiskReward ?? 1.2}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { setupMinRiskReward: Number(event.target.value) });
+                    await load();
+                  }, 'Min risk/reward updated.', 'Failed to update min risk/reward.')}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">Max Estimated Cost (bps)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.maxEstimatedCostBps ?? 15}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { maxEstimatedCostBps: Number(event.target.value) });
+                    await load();
+                  }, 'Max estimated cost updated.', 'Failed to update max estimated cost.')}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">No-trade min consensus</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.noTradeMinConsensus ?? 0.5}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { noTradeMinConsensus: Number(event.target.value) });
+                    await load();
+                  }, 'No-trade consensus gate updated.', 'Failed to update no-trade consensus gate.')}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">No-trade high-vol stdev</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  defaultValue={config.noTradeHighVolStdevThreshold ?? 2.9}
+                  onBlur={async (event) => runAction(async () => {
+                    await apiPatch('/admin/config', { noTradeHighVolStdevThreshold: Number(event.target.value) });
+                    await load();
+                  }, 'No-trade volatility gate updated.', 'Failed to update no-trade volatility gate.')}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -544,6 +603,21 @@ export default function Dashboard() {
             const result = await apiPost<BacktestResult>('/admin/backtest', { symbol: manualSymbol, lookback: 200 });
             setLatestBacktest(result);
           }, 'Backtest started.', 'Failed to run backtest.')}>Run Backtest</button>
+          <button className="px-4 py-2 rounded bg-indigo-600" onClick={async () => runAction(async () => {
+            const result = await apiPost<BacktestResult & { windowCount?: number; averageDrift?: number; averageTestHitRate?: number }>('/admin/walk-forward', {
+              symbol: manualSymbol,
+              lookback: 300,
+              trainWindow: 80,
+              testWindow: 30
+            });
+            setLatestBacktest({
+              symbol: result.symbol,
+              sampleSize: result.sampleSize || 0,
+              takeCount: result.takeCount || 0,
+              hitRate: result.hitRate ?? result.averageTestHitRate ?? 0
+            });
+            setNotice({ type: 'info', text: `Walk-forward done. Windows: ${result.windowCount || 0}, avg drift: ${(Number(result.averageDrift || 0) * 100).toFixed(2)}%` });
+          }, 'Walk-forward completed.', 'Failed to run walk-forward.')}>Run Walk-Forward</button>
         </div>
         {latestBacktest && (
           <div className="text-sm space-y-1">

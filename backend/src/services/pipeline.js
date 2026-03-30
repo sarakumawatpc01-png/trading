@@ -33,7 +33,7 @@ export class PipelineService {
 
         const agentOutputs = await this.agents.runAll({
           symbol: trigger.symbol,
-          context: trigger,
+          context: { ...trigger, regime: await this.store.getLatestRegimeForSymbol(trigger.symbol) },
           runId
         });
 

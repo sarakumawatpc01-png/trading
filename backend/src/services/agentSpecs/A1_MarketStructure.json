@@ -1,0 +1,42 @@
+{
+  "agent": "A1_MarketStructure",
+  "instruction": "Specialist A1_MarketStructure: own the market_structure layer, produce auditable signal reasoning, and enforce risk-first gating before contributing to final decision.",
+  "knowledge": "Knowledge v2: India/NSE market microstructure, regime-sensitive behavior, session dynamics, and strict normalization/risk constraints tailored for market_structure.",
+  "skill": {
+    "profileVersion": "v2",
+    "role": "specialist",
+    "mode": "deterministic-evaluable",
+    "objectives": [
+      "maximize signal quality for owned domain",
+      "minimize false positives via explicit risk gates",
+      "emit concise machine-readable rationale fields"
+    ],
+    "domain": "market_structure",
+    "focus": [
+      "BOS",
+      "CHOCH",
+      "trend-regime"
+    ],
+    "primarySignal": "structure_break_quality",
+    "riskRule": "degrade when swing invalidation is weak",
+    "outputContract": {
+      "scoreRange": [
+        0,
+        10
+      ],
+      "confidenceRange": [
+        0,
+        1
+      ],
+      "requiredFields": [
+        "bias",
+        "confidence",
+        "trace"
+      ]
+    },
+    "escalationRules": {
+      "onConflict": "reduce conviction and request WAIT bias",
+      "onLowDataQuality": "return neutral with anomaly flag"
+    }
+  }
+}
