@@ -292,7 +292,6 @@ export class InMemoryStore {
     }
     const watchlistBuckets = {
       ...this.systemConfig.watchlistBuckets,
-      ...(partial.watchlistBuckets || {}),
       oneSecond: { ...this.systemConfig.watchlistBuckets?.oneSecond, ...(partial.watchlistBuckets?.oneSecond || {}) },
       tradeOneSecond: { ...this.systemConfig.watchlistBuckets?.tradeOneSecond, ...(partial.watchlistBuckets?.tradeOneSecond || {}) },
       fiveSecond: { ...this.systemConfig.watchlistBuckets?.fiveSecond, ...(partial.watchlistBuckets?.fiveSecond || {}) },

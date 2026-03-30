@@ -15,6 +15,10 @@ ONE_SECOND_INTERVAL_SEC = int(os.getenv('PREFILTER_ONE_SEC_INTERVAL', '1'))
 FIVE_SECOND_INTERVAL_SEC = int(os.getenv('PREFILTER_FIVE_SEC_INTERVAL', '5'))
 SIXTY_SECOND_INTERVAL_SEC = int(os.getenv('PREFILTER_SIXTY_SEC_INTERVAL', '60'))
 CONFIG_REFRESH_SEC = int(os.getenv('PREFILTER_CONFIG_REFRESH_SEC', '30'))
+DEFAULT_ONE_SEC_MAX = 5
+DEFAULT_TRADE_ONE_SEC_MAX = 5
+DEFAULT_FIVE_SEC_MAX = 10
+DEFAULT_SIXTY_SEC_MAX = 50
 
 MOMENTUM_MODULUS = int(os.getenv('PREFILTER_MOMENTUM_MODULUS', '10'))
 VOLUME_MODULUS = int(os.getenv('PREFILTER_VOLUME_MODULUS', '7'))
@@ -120,8 +124,8 @@ def dedupe_symbols(symbols: List[str]) -> List[str]:
 
 
 async def fetch_system_config() -> Dict:
-    now = time.time()
     async with CONFIG_LOCK:
+        now = time.time()
         if CONFIG_CACHE['data'] and (now - CONFIG_CACHE['fetched_at']) < CONFIG_REFRESH_SEC:
             return CONFIG_CACHE['data']
         try:
@@ -147,10 +151,10 @@ def build_bucket_symbols(config: Dict, fallback_symbols: List[str]) -> Dict[str,
     five_raw = dedupe_symbols(five_bucket.get('symbols', []) or [])
     sixty_raw = dedupe_symbols(sixty_bucket.get('symbols', []) or [])
 
-    one_max = int(one_bucket.get('maxSymbols') or 5)
-    trade_max = int(trade_bucket.get('maxSymbols') or 5)
-    five_max = int(five_bucket.get('maxSymbols') or 10)
-    sixty_max = int(sixty_bucket.get('maxSymbols') or 50)
+    one_max = int(one_bucket.get('maxSymbols') or DEFAULT_ONE_SEC_MAX)
+    trade_max = int(trade_bucket.get('maxSymbols') or DEFAULT_TRADE_ONE_SEC_MAX)
+    five_max = int(five_bucket.get('maxSymbols') or DEFAULT_FIVE_SEC_MAX)
+    sixty_max = int(sixty_bucket.get('maxSymbols') or DEFAULT_SIXTY_SEC_MAX)
 
     one_symbols = one_raw[:one_max] if one_max > 0 else one_raw
     trade_fast = trade_raw[:trade_max] if trade_max > 0 else trade_raw
@@ -205,7 +209,8 @@ async def prefilter_bucket_loop(bucket: str, interval_sec: int):
     while True:
       if is_indian_market_open():
           async with BUCKET_LOCK:
-              symbols = list(BUCKET_CACHE.get(bucket, []))
+              symbols_ref = BUCKET_CACHE.get(bucket, [])
+          symbols = list(symbols_ref)
           for sym in symbols:
               symbol = normalize_indian_symbol(sym)
               price = MOCK_BASE_PRICE + (sum(ord(c) for c in symbol) % MOCK_PRICE_VARIANCE)

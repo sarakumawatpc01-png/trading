@@ -110,6 +110,12 @@ const DEFAULT_CONFIDENCE_DECAY_HOURS = 4;
 const DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT = 20;
 const REAL_TRADING_KEY = 'real money- direct trading on zerodha';
 const DEFAULT_PRIORITY_ORDER = ['PCR', 'OI build-up', 'Max pain', 'IV', 'Greeks', 'Skew', 'IV rank'];
+const DEFAULT_BUCKET_LIMITS = {
+  oneSecond: 5,
+  tradeOneSecond: 5,
+  fiveSecond: 10,
+  sixtySecond: 50
+};
 
 export default function Dashboard() {
   const [setups, setSetups] = useState<Setup[]>([]);
@@ -262,6 +268,13 @@ export default function Dashboard() {
     const pieces = value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
     return pieces.length ? pieces : DEFAULT_PRIORITY_ORDER;
   };
+
+  const watchlistLimits = useMemo(() => ({
+    oneSecond: config?.watchlistBuckets?.oneSecond?.maxSymbols ?? DEFAULT_BUCKET_LIMITS.oneSecond,
+    tradeOneSecond: config?.watchlistBuckets?.tradeOneSecond?.maxSymbols ?? DEFAULT_BUCKET_LIMITS.tradeOneSecond,
+    fiveSecond: config?.watchlistBuckets?.fiveSecond?.maxSymbols ?? DEFAULT_BUCKET_LIMITS.fiveSecond,
+    sixtySecond: config?.watchlistBuckets?.sixtySecond?.maxSymbols ?? DEFAULT_BUCKET_LIMITS.sixtySecond
+  }), [config]);
 
   useEffect(() => {
     load();
@@ -731,29 +744,29 @@ export default function Dashboard() {
               <h3 className="font-medium">Watchlist Buckets</h3>
               <div className="grid md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block mb-1">1s preset (5 symbols)</label>
+                  <label className="block mb-1">1s preset ({watchlistLimits.oneSecond} symbols)</label>
                   <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.oneSecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, oneSecond: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="block mb-1">1s trade list (5 symbols)</label>
+                  <label className="block mb-1">1s trade list ({watchlistLimits.tradeOneSecond} symbols)</label>
                   <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.tradeOneSecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, tradeOneSecond: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="block mb-1">5s bucket (10 symbols)</label>
+                  <label className="block mb-1">5s bucket ({watchlistLimits.fiveSecond} symbols)</label>
                   <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.fiveSecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, fiveSecond: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="block mb-1">60s bucket (50+ symbols)</label>
+                  <label className="block mb-1">60s bucket ({watchlistLimits.sixtySecond}+ symbols)</label>
                   <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.sixtySecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, sixtySecond: event.target.value }))} />
                 </div>
               </div>
               <button className="px-4 py-2 rounded bg-emerald-600" onClick={async () => runAction(async () => {
                 await apiPatch('/admin/config', {
                   watchlistBuckets: {
-                    oneSecond: { symbols: parseSymbolList(watchlistDraft.oneSecond), maxSymbols: 5 },
-                    tradeOneSecond: { symbols: parseSymbolList(watchlistDraft.tradeOneSecond), maxSymbols: 5 },
-                    fiveSecond: { symbols: parseSymbolList(watchlistDraft.fiveSecond), maxSymbols: 10 },
-                    sixtySecond: { symbols: parseSymbolList(watchlistDraft.sixtySecond), maxSymbols: 50 }
+                    oneSecond: { symbols: parseSymbolList(watchlistDraft.oneSecond), maxSymbols: watchlistLimits.oneSecond },
+                    tradeOneSecond: { symbols: parseSymbolList(watchlistDraft.tradeOneSecond), maxSymbols: watchlistLimits.tradeOneSecond },
+                    fiveSecond: { symbols: parseSymbolList(watchlistDraft.fiveSecond), maxSymbols: watchlistLimits.fiveSecond },
+                    sixtySecond: { symbols: parseSymbolList(watchlistDraft.sixtySecond), maxSymbols: watchlistLimits.sixtySecond }
                   }
                 });
                 await load();
