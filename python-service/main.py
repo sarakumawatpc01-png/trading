@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime
@@ -29,7 +30,12 @@ MOCK_BASE_PRICE = 100
 MOCK_PRICE_VARIANCE = 50
 IST_ZONE = ZoneInfo('Asia/Kolkata')
 WEIGHT_SUM_TOLERANCE = 0.0001
+
+logger = logging.getLogger(__name__)
+
+
 class ConfigCache(TypedDict):
+    """Cached admin config payload and fetch timestamp."""
     data: Dict
     fetched_at: float
 
@@ -204,7 +210,7 @@ async def refresh_bucket_cache_loop():
         try:
             await refresh_bucket_cache_once()
         except Exception:
-            pass
+            logger.exception('Failed to refresh bucket cache')
         await asyncio.sleep(CONFIG_REFRESH_SEC)
 
 
@@ -231,9 +237,9 @@ async def prefilter_bucket_loop(bucket: str, interval_sec: int):
                               'price': result['price']
                           })
                       except Exception:
-                          pass
+                          logger.warning('Failed to send trigger for %s', symbol, exc_info=True)
       except Exception:
-          pass
+          logger.exception('Error in %s bucket loop', bucket)
       await asyncio.sleep(interval_sec)
 
 
