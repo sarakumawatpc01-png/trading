@@ -49,6 +49,14 @@ type Config = {
   brainInstructions: string;
   agentWeights: Record<string, number>;
   apiConfig: Record<string, string>;
+  brokerConfig?: {
+    provider?: string;
+    environment?: string;
+    apiKeyEnv?: string;
+    apiSecretEnv?: string;
+    redirectUrlEnv?: string;
+    accessTokenEnv?: string;
+  };
   useEVBrain?: boolean;
   evMinThreshold?: number;
   minWinRate?: number;
@@ -59,6 +67,7 @@ type Config = {
   driftThreshold?: number;
   paperModeEnabled?: boolean;
   paperInitialCapital?: number;
+  ['real money- direct trading on zerodha']?: boolean;
   autoShutdownDrawdownPercent?: number;
   paperExecution?: {
     slippageBps?: number;
@@ -71,6 +80,19 @@ type Config = {
   noTradeMinConsensus?: number;
   noTradeHighVolStdevThreshold?: number;
   stockOverrides?: Record<string, { slMultiplier?: number; targetFactors?: number[] }>;
+  watchlistBuckets?: {
+    oneSecond?: { symbols?: string[]; maxSymbols?: number };
+    tradeOneSecond?: { symbols?: string[]; maxSymbols?: number };
+    fiveSecond?: { symbols?: string[]; maxSymbols?: number };
+    sixtySecond?: { symbols?: string[]; maxSymbols?: number };
+  };
+  optionAnalytics?: {
+    strikesAroundAtm?: number;
+    expiries?: string;
+    includeAllScopes?: boolean;
+    includeAllAnalytics?: boolean;
+    priorityOrder?: string[];
+  };
   prefilterConfig?: {
     momentumModulus?: number;
     volumeModulus?: number;
@@ -86,6 +108,8 @@ const DEFAULT_MANUAL_ANALYSIS_PRICE = 120;
 const DEFAULT_WIN_RATE_GATE = 0.45;
 const DEFAULT_CONFIDENCE_DECAY_HOURS = 4;
 const DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT = 20;
+const REAL_TRADING_KEY = 'real money- direct trading on zerodha';
+const DEFAULT_PRIORITY_ORDER = ['PCR', 'OI build-up', 'Max pain', 'IV', 'Greeks', 'Skew', 'IV rank'];
 
 export default function Dashboard() {
   const [setups, setSetups] = useState<Setup[]>([]);
@@ -114,6 +138,19 @@ export default function Dashboard() {
     minSymbolWinRateForTake: DEFAULT_WIN_RATE_GATE,
     setupConfidenceDecayHours: DEFAULT_CONFIDENCE_DECAY_HOURS,
     autoShutdownDrawdownPercent: DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
+  });
+  const [watchlistDraft, setWatchlistDraft] = useState({
+    oneSecond: '',
+    tradeOneSecond: '',
+    fiveSecond: '',
+    sixtySecond: ''
+  });
+  const [analyticsDraft, setAnalyticsDraft] = useState({
+    strikesAroundAtm: 10,
+    expiries: 'all',
+    includeAllScopes: true,
+    includeAllAnalytics: true,
+    priorityOrder: DEFAULT_PRIORITY_ORDER.join(', ')
   });
   const [loading, setLoading] = useState(false);
   const configWriterRef = useRef<DebouncedConfigWriter | null>(null);
@@ -163,6 +200,21 @@ export default function Dashboard() {
       setupConfidenceDecayHours: c.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS,
       autoShutdownDrawdownPercent: c.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
     });
+    const buckets = c.watchlistBuckets || {};
+    setWatchlistDraft({
+      oneSecond: (buckets.oneSecond?.symbols || []).join(', '),
+      tradeOneSecond: (buckets.tradeOneSecond?.symbols || []).join(', '),
+      fiveSecond: (buckets.fiveSecond?.symbols || []).join(', '),
+      sixtySecond: (buckets.sixtySecond?.symbols || []).join(', ')
+    });
+    const analytics = c.optionAnalytics || {};
+    setAnalyticsDraft({
+      strikesAroundAtm: analytics.strikesAroundAtm ?? 10,
+      expiries: analytics.expiries ?? 'all',
+      includeAllScopes: analytics.includeAllScopes ?? true,
+      includeAllAnalytics: analytics.includeAllAnalytics ?? true,
+      priorityOrder: (analytics.priorityOrder || DEFAULT_PRIORITY_ORDER).join(', ')
+    });
 
     const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
     const metricsRows = await Promise.all(
@@ -201,6 +253,16 @@ export default function Dashboard() {
     setNotice({ type: 'info', text: `${key} queued for save.` });
   };
 
+  const parseSymbolList = (value: string) => {
+    const pieces = value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+    return Array.from(new Set(pieces));
+  };
+
+  const parsePriorityList = (value: string) => {
+    const pieces = value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+    return pieces.length ? pieces : DEFAULT_PRIORITY_ORDER;
+  };
+
   useEffect(() => {
     load();
     const wsBase = (process.env.NEXT_PUBLIC_WS_BASE || 'ws://localhost:8080').replace(/\/$/, '');
@@ -231,8 +293,14 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-bg text-slate-100 p-4 md:p-8 space-y-6">
-      <header className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-        <h1 className="text-2xl font-bold tracking-wide">ORACLE Trading Intelligence</h1>
+      <header className="flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-wide">ORACLE Trading Intelligence</h1>
+          <div className="flex gap-2 text-sm mt-2">
+            <Link className="px-3 py-1 rounded bg-slate-800 border border-slate-600 hover:bg-slate-700" href="/option-analytics">Option Analytics</Link>
+            <Link className="px-3 py-1 rounded bg-slate-800 border border-slate-600 hover:bg-slate-700" href="/paper-trades">Paper Trades</Link>
+          </div>
+        </div>
         <div className="flex gap-2 items-center">
           <input className="px-3 py-2 rounded bg-slate-800 border border-slate-600" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="px-4 py-2 rounded bg-accent text-black font-semibold" onClick={async () => runAction(async () => {
@@ -591,6 +659,105 @@ export default function Dashboard() {
                   }, 'No-trade volatility gate updated.', 'Failed to update no-trade volatility gate.')}
                 />
               </div>
+            </div>
+            <div className="md:col-span-2 grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <h3 className="font-medium">Broker Session &amp; Execution</h3>
+                <button className="px-4 py-2 rounded bg-rose-500 text-black font-semibold" onClick={async () => runAction(async () => {
+                  const nextValue = !config[REAL_TRADING_KEY];
+                  await apiPatch('/admin/config', { [REAL_TRADING_KEY]: nextValue });
+                  await load();
+                }, 'Execution toggle updated.', 'Failed to update execution toggle.')}>
+                  {REAL_TRADING_KEY}: {String(config[REAL_TRADING_KEY] ?? false)}
+                </button>
+                <div className="text-xs text-slate-300">Environment: {config.brokerConfig?.environment ?? 'prod'}</div>
+                <div className="text-xs text-slate-300">API key env: {config.brokerConfig?.apiKeyEnv ?? 'KITE_API_KEY'}</div>
+                <div className="text-xs text-slate-300">Redirect URL env: {config.brokerConfig?.redirectUrlEnv ?? 'KITE_REDIRECT_URL'}</div>
+                <div className="text-xs text-slate-300">Access token env: {config.brokerConfig?.accessTokenEnv ?? 'KITE_ACCESS_TOKEN'}</div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-medium">Option Analytics Config</h3>
+                <label className="block mb-1">Strikes around ATM (±)</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  value={analyticsDraft.strikesAroundAtm}
+                  onChange={(event) => setAnalyticsDraft((prev) => ({ ...prev, strikesAroundAtm: Number(event.target.value) }))}
+                />
+                <label className="block mb-1">Expiries</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                  value={analyticsDraft.expiries}
+                  onChange={(event) => setAnalyticsDraft((prev) => ({ ...prev, expiries: event.target.value }))}
+                />
+                <label className="block mb-1">Priority order (comma separated)</label>
+                <textarea
+                  className="w-full h-20 p-2 rounded bg-slate-800 border border-slate-600"
+                  value={analyticsDraft.priorityOrder}
+                  onChange={(event) => setAnalyticsDraft((prev) => ({ ...prev, priorityOrder: event.target.value }))}
+                />
+                <div className="flex items-center gap-3 text-xs">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={analyticsDraft.includeAllScopes}
+                      onChange={(event) => setAnalyticsDraft((prev) => ({ ...prev, includeAllScopes: event.target.checked }))}
+                    />
+                    all scopes
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={analyticsDraft.includeAllAnalytics}
+                      onChange={(event) => setAnalyticsDraft((prev) => ({ ...prev, includeAllAnalytics: event.target.checked }))}
+                    />
+                    all analytics
+                  </label>
+                </div>
+                <button className="px-4 py-2 rounded bg-sky-600" onClick={async () => runAction(async () => {
+                  await apiPatch('/admin/config', {
+                    optionAnalytics: {
+                      strikesAroundAtm: Number(analyticsDraft.strikesAroundAtm),
+                      expiries: analyticsDraft.expiries || 'all',
+                      includeAllScopes: analyticsDraft.includeAllScopes,
+                      includeAllAnalytics: analyticsDraft.includeAllAnalytics,
+                      priorityOrder: parsePriorityList(analyticsDraft.priorityOrder)
+                    }
+                  });
+                  await load();
+                }, 'Option analytics config updated.', 'Failed to update option analytics config.')}>Save Option Analytics</button>
+              </div>
+            </div>
+            <div className="md:col-span-2 space-y-3">
+              <h3 className="font-medium">Watchlist Buckets</h3>
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block mb-1">1s preset (5 symbols)</label>
+                  <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.oneSecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, oneSecond: event.target.value }))} />
+                </div>
+                <div>
+                  <label className="block mb-1">1s trade list (5 symbols)</label>
+                  <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.tradeOneSecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, tradeOneSecond: event.target.value }))} />
+                </div>
+                <div>
+                  <label className="block mb-1">5s bucket (10 symbols)</label>
+                  <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.fiveSecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, fiveSecond: event.target.value }))} />
+                </div>
+                <div>
+                  <label className="block mb-1">60s bucket (50+ symbols)</label>
+                  <textarea className="w-full h-16 p-2 rounded bg-slate-800 border border-slate-600" value={watchlistDraft.sixtySecond} onChange={(event) => setWatchlistDraft((prev) => ({ ...prev, sixtySecond: event.target.value }))} />
+                </div>
+              </div>
+              <button className="px-4 py-2 rounded bg-emerald-600" onClick={async () => runAction(async () => {
+                await apiPatch('/admin/config', {
+                  watchlistBuckets: {
+                    oneSecond: { symbols: parseSymbolList(watchlistDraft.oneSecond), maxSymbols: 5 },
+                    tradeOneSecond: { symbols: parseSymbolList(watchlistDraft.tradeOneSecond), maxSymbols: 5 },
+                    fiveSecond: { symbols: parseSymbolList(watchlistDraft.fiveSecond), maxSymbols: 10 },
+                    sixtySecond: { symbols: parseSymbolList(watchlistDraft.sixtySecond), maxSymbols: 50 }
+                  }
+                });
+                await load();
+              }, 'Watchlist buckets updated.', 'Failed to update watchlist buckets.')}>Save Watchlists</button>
             </div>
           </div>
         )}
