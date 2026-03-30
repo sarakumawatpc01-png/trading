@@ -87,6 +87,7 @@ export class InMemoryStore {
         feeBps: DEFAULT_PAPER_FEE_BPS,
         latencyMs: DEFAULT_PAPER_LATENCY_MS
       },
+      'real money- direct trading on zerodha': false,
       setupMinRiskReward: 1.2,
       maxEstimatedCostBps: 15,
       noTradeMinConsensus: 0.5,
@@ -98,6 +99,27 @@ export class InMemoryStore {
         momentumWeight: 0.6,
         volumeWeight: 0.4,
         triggerThreshold: 4.2
+      },
+      watchlistBuckets: {
+        oneSecond: { symbols: [], maxSymbols: 5 },
+        tradeOneSecond: { symbols: [], maxSymbols: 5 },
+        fiveSecond: { symbols: [], maxSymbols: 10 },
+        sixtySecond: { symbols: [], maxSymbols: 50 }
+      },
+      optionAnalytics: {
+        strikesAroundAtm: 10,
+        expiries: 'all',
+        includeAllScopes: true,
+        includeAllAnalytics: true,
+        priorityOrder: ['PCR', 'OI build-up', 'Max pain', 'IV', 'Greeks', 'Skew', 'IV rank']
+      },
+      brokerConfig: {
+        provider: 'zerodha-kite',
+        environment: 'prod',
+        apiKeyEnv: 'KITE_API_KEY',
+        apiSecretEnv: 'KITE_API_SECRET',
+        redirectUrlEnv: 'KITE_REDIRECT_URL',
+        accessTokenEnv: 'KITE_ACCESS_TOKEN'
       },
       apiConfig: {
         newsProvider: 'mock-news-v1',
@@ -268,6 +290,13 @@ export class InMemoryStore {
         if (validationError) throw new Error(validationError);
       }
     }
+    const watchlistBuckets = {
+      ...this.systemConfig.watchlistBuckets,
+      oneSecond: { ...this.systemConfig.watchlistBuckets?.oneSecond, ...(partial.watchlistBuckets?.oneSecond || {}) },
+      tradeOneSecond: { ...this.systemConfig.watchlistBuckets?.tradeOneSecond, ...(partial.watchlistBuckets?.tradeOneSecond || {}) },
+      fiveSecond: { ...this.systemConfig.watchlistBuckets?.fiveSecond, ...(partial.watchlistBuckets?.fiveSecond || {}) },
+      sixtySecond: { ...this.systemConfig.watchlistBuckets?.sixtySecond, ...(partial.watchlistBuckets?.sixtySecond || {}) }
+    };
     this.systemConfig = {
       ...this.systemConfig,
       ...partial,
@@ -275,6 +304,9 @@ export class InMemoryStore {
       agentWeights: { ...this.systemConfig.agentWeights, ...(partial.agentWeights || {}) },
       stockOverrides: { ...this.systemConfig.stockOverrides, ...(partial.stockOverrides || {}) },
       prefilterConfig: { ...this.systemConfig.prefilterConfig, ...(partial.prefilterConfig || {}) },
+      brokerConfig: { ...this.systemConfig.brokerConfig, ...(partial.brokerConfig || {}) },
+      optionAnalytics: { ...this.systemConfig.optionAnalytics, ...(partial.optionAnalytics || {}) },
+      watchlistBuckets,
       paperExecution: { ...this.systemConfig.paperExecution, ...(partial.paperExecution || {}) },
       eventCalendar: partial.eventCalendar !== undefined
         ? this.normalizeEventCalendar(partial.eventCalendar)
