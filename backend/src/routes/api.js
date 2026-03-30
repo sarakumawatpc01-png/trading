@@ -326,6 +326,19 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     } catch (err) { next(err); }
   });
 
+  router.post('/admin/walk-forward', async (req, res, next) => {
+    try {
+      const body = z.object({
+        symbol: z.string().min(1),
+        lookback: z.number().int().positive().max(5000).optional(),
+        trainWindow: z.number().int().positive().max(2000).optional(),
+        testWindow: z.number().int().positive().max(2000).optional()
+      }).parse(req.body || {});
+      const result = await store.runWalkForwardBacktest(normalizeIndianSymbol(body.symbol), body);
+      res.status(200).json(result);
+    } catch (err) { next(err); }
+  });
+
   router.get('/admin/backtest/:id', async (req, res) => {
     const result = backtester ? await backtester.getBacktest(req.params.id) : await store.getBacktestResult(req.params.id);
     if (!result) return res.status(404).json({ error: 'Backtest not found' });

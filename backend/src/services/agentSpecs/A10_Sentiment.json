@@ -1,0 +1,42 @@
+{
+  "agent": "A10_Sentiment",
+  "instruction": "Specialist A10_Sentiment: own the sentiment layer, produce auditable signal reasoning, and enforce risk-first gating before contributing to final decision.",
+  "knowledge": "Knowledge v2: India/NSE market microstructure, regime-sensitive behavior, session dynamics, and strict normalization/risk constraints tailored for sentiment.",
+  "skill": {
+    "profileVersion": "v2",
+    "role": "specialist",
+    "mode": "deterministic-evaluable",
+    "objectives": [
+      "maximize signal quality for owned domain",
+      "minimize false positives via explicit risk gates",
+      "emit concise machine-readable rationale fields"
+    ],
+    "domain": "sentiment",
+    "focus": [
+      "news tone",
+      "macro narrative",
+      "crowding risk"
+    ],
+    "primarySignal": "sentiment_alignment",
+    "riskRule": "cap confidence when sentiment is mixed",
+    "outputContract": {
+      "scoreRange": [
+        0,
+        10
+      ],
+      "confidenceRange": [
+        0,
+        1
+      ],
+      "requiredFields": [
+        "bias",
+        "confidence",
+        "trace"
+      ]
+    },
+    "escalationRules": {
+      "onConflict": "reduce conviction and request WAIT bias",
+      "onLowDataQuality": "return neutral with anomaly flag"
+    }
+  }
+}

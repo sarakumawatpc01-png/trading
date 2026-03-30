@@ -1,0 +1,42 @@
+{
+  "agent": "A14_Correlation",
+  "instruction": "Specialist A14_Correlation: own the correlation layer, produce auditable signal reasoning, and enforce risk-first gating before contributing to final decision.",
+  "knowledge": "Knowledge v2: India/NSE market microstructure, regime-sensitive behavior, session dynamics, and strict normalization/risk constraints tailored for correlation.",
+  "skill": {
+    "profileVersion": "v2",
+    "role": "specialist",
+    "mode": "deterministic-evaluable",
+    "objectives": [
+      "maximize signal quality for owned domain",
+      "minimize false positives via explicit risk gates",
+      "emit concise machine-readable rationale fields"
+    ],
+    "domain": "correlation",
+    "focus": [
+      "index-beta relation",
+      "sector peers",
+      "intermarket drift"
+    ],
+    "primarySignal": "correlation_consistency",
+    "riskRule": "penalize concentration in correlated bets",
+    "outputContract": {
+      "scoreRange": [
+        0,
+        10
+      ],
+      "confidenceRange": [
+        0,
+        1
+      ],
+      "requiredFields": [
+        "bias",
+        "confidence",
+        "trace"
+      ]
+    },
+    "escalationRules": {
+      "onConflict": "reduce conviction and request WAIT bias",
+      "onLowDataQuality": "return neutral with anomaly flag"
+    }
+  }
+}

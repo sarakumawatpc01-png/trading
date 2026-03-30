@@ -1,7 +1,8 @@
 import { uid } from '../utils/id.js';
 import { INDIA_TIME_ZONE } from '../utils/marketHours.js';
 import { normalizeIndianSymbol } from '../utils/symbol.js';
-import { createDefaultAgentSpecs } from '../services/agentCatalog.js';
+import { AGENTS, AGENT_SPEC_VERSION } from '../services/agentCatalog.js';
+import { loadAgentSpecsFromFiles } from '../services/agentSpecLoader.js';
 import { DEFAULT_EVENT_CALENDAR, normalizeCalendarEvent } from '../services/eventCalendar.js';
 
 // sv-SE provides stable YYYY-MM-DD HH:mm:ss ordering; we convert it to an IST-local timestamp shape.
@@ -16,6 +17,11 @@ const DEFAULT_PAPER_FEE_BPS = 2;
 const DEFAULT_PAPER_LATENCY_MS = 120;
 const BACKTEST_MIN_SAMPLE_SIZE = 20;
 const CONFIDENCE_Z_SCORE = 1.96;
+const RELIABILITY_PRIOR_SAMPLES = 10;
+const RELIABILITY_MIN_WEIGHT = 0.6;
+const RELIABILITY_MAX_WEIGHT = 1.4;
+const CALIBRATION_MIN_BIN_SAMPLES = 10;
+const CALIBRATION_BIN_SIZE = 0.1;
 
 function computeWilsonInterval(wins, total) {
   if (!total) return { low: 0, high: 0 };
@@ -52,7 +58,7 @@ export class InMemoryStore {
     this.setupById = new Map();
     this.setupsBySymbol = new Map();
     this.agentOutputs = [];
-    this.agentSpecs = createDefaultAgentSpecs();
+    this.agentSpecs = loadAgentSpecsFromFiles({ agents: AGENTS, specVersion: AGENT_SPEC_VERSION });
     this.outcomes = [];
     this.backtests = [];
     this.driftLogs = [];
@@ -81,6 +87,10 @@ export class InMemoryStore {
         feeBps: DEFAULT_PAPER_FEE_BPS,
         latencyMs: DEFAULT_PAPER_LATENCY_MS
       },
+      setupMinRiskReward: 1.2,
+      maxEstimatedCostBps: 15,
+      noTradeMinConsensus: 0.5,
+      noTradeHighVolStdevThreshold: 2.9,
       eventCalendar: DEFAULT_EVENT_CALENDAR.map((event) => normalizeCalendarEvent(event)),
       prefilterConfig: {
         momentumModulus: 10,
@@ -188,6 +198,14 @@ export class InMemoryStore {
         return validateRange(1, 24) ? null : `${key} must be between 1 and 24`;
       case 'autoShutdownDrawdownPercent':
         return validateRange(0, 100) ? null : `${key} must be between 0 and 100`;
+      case 'setupMinRiskReward':
+        return validateRange(0.5, 10) ? null : `${key} must be between 0.5 and 10`;
+      case 'maxEstimatedCostBps':
+        return validateRange(0, 100) ? null : `${key} must be between 0 and 100`;
+      case 'noTradeMinConsensus':
+        return validateRange(0, 1) ? null : `${key} must be between 0 and 1`;
+      case 'noTradeHighVolStdevThreshold':
+        return validateRange(0, 10) ? null : `${key} must be between 0 and 10`;
       case 'paperExecution.slippageBps':
       case 'paperExecution.feeBps':
         return validateRange(0, 100) ? null : `${key} must be between 0 and 100`;
@@ -209,6 +227,10 @@ export class InMemoryStore {
       minSymbolWinRateForTake: { min: 0, max: 1 },
       setupConfidenceDecayHours: { min: 1, max: 24 },
       autoShutdownDrawdownPercent: { min: 0, max: 100 },
+      setupMinRiskReward: { min: 0.5, max: 10 },
+      maxEstimatedCostBps: { min: 0, max: 100 },
+      noTradeMinConsensus: { min: 0, max: 1 },
+      noTradeHighVolStdevThreshold: { min: 0, max: 10 },
       paperExecution: {
         slippageBps: { min: 0, max: 100 },
         feeBps: { min: 0, max: 100 },
@@ -223,7 +245,16 @@ export class InMemoryStore {
     if (partial.paperInitialCapital && typeof partial.paperInitialCapital === 'number' && this.paperTrades.some((t) => t.status === 'OPEN')) {
       throw new Error('Cannot change paperInitialCapital while open paper trades exist');
     }
-    const directKeys = ['minWinRate', 'minSymbolWinRateForTake', 'setupConfidenceDecayHours', 'autoShutdownDrawdownPercent'];
+    const directKeys = [
+      'minWinRate',
+      'minSymbolWinRateForTake',
+      'setupConfidenceDecayHours',
+      'autoShutdownDrawdownPercent',
+      'setupMinRiskReward',
+      'maxEstimatedCostBps',
+      'noTradeMinConsensus',
+      'noTradeHighVolStdevThreshold'
+    ];
     for (const key of directKeys) {
       if (partial[key] !== undefined) {
         const validationError = this.validateConfigField(key, partial[key]);
@@ -273,7 +304,7 @@ export class InMemoryStore {
     const quantity = Number(partial.quantity ?? 1);
     const pnl = Number(((exitPrice - entryPrice) * quantity).toFixed(2));
     const pnlPercent = Number((((exitPrice - entryPrice) / entryPrice) * 100).toFixed(3));
-    return this.addOutcome({
+    const outcome = await this.addOutcome({
       setupId,
       runId: setup.runId,
       symbol: setup.symbol,
@@ -285,6 +316,8 @@ export class InMemoryStore {
       status: pnl >= 0 ? 'WIN' : 'LOSS',
       exitReason: partial.exitReason || 'manual_label'
     });
+    await this.updateReliabilityFromOutcome(setup, outcome);
+    return outcome;
   }
   async getHistoricalStats(symbol) {
     const rows = this.outcomes.filter((x) => !symbol || x.symbol === symbol);
@@ -534,6 +567,11 @@ export class InMemoryStore {
     return (this.setupsBySymbol.get(symbol) || []).slice(0, max);
   }
 
+  async getLatestRegimeForSymbol(symbol) {
+    const latest = (this.setupsBySymbol.get(symbol) || [])[0];
+    return latest?.regime || null;
+  }
+
   async openPaperTrade(data) {
     const trade = { id: uid('paper_trade'), ...data, status: 'OPEN', createdAt: nowIstLocal() };
     this.paperTrades.unshift(trade);
@@ -608,6 +646,117 @@ export class InMemoryStore {
       minSampleSize: BACKTEST_MIN_SAMPLE_SIZE,
       minSampleMet,
       warnings
+    };
+  }
+
+  async runWalkForwardBacktest(symbol, options = {}) {
+    const lookback = Math.max(40, Number(options.lookback || 300));
+    const trainWindow = Math.max(20, Number(options.trainWindow || 80));
+    const testWindow = Math.max(10, Number(options.testWindow || 30));
+    const setups = (await this.getRecentSetupsBySymbol(symbol, lookback)).slice().reverse();
+    const outcomesBySetupId = new Map(this.outcomes.map((row) => [row.setupId, row]));
+    const windows = [];
+    let cursor = trainWindow;
+    while (cursor + testWindow <= setups.length) {
+      const trainRows = setups.slice(cursor - trainWindow, cursor);
+      const testRows = setups.slice(cursor, cursor + testWindow);
+      const trainResolved = trainRows.map((setup) => outcomesBySetupId.get(setup.id)).filter(Boolean);
+      const testResolved = testRows.map((setup) => outcomesBySetupId.get(setup.id)).filter(Boolean);
+      const trainWins = trainResolved.filter((row) => Number(row.pnl || 0) > 0).length;
+      const testWins = testResolved.filter((row) => Number(row.pnl || 0) > 0).length;
+      const trainHitRate = trainResolved.length ? trainWins / trainResolved.length : 0;
+      const testHitRate = testResolved.length ? testWins / testResolved.length : 0;
+      windows.push({
+        index: windows.length + 1,
+        trainSample: trainResolved.length,
+        testSample: testResolved.length,
+        trainHitRate: Number(trainHitRate.toFixed(4)),
+        testHitRate: Number(testHitRate.toFixed(4)),
+        drift: Number((testHitRate - trainHitRate).toFixed(4))
+      });
+      cursor += testWindow;
+    }
+    const validWindows = windows.filter((row) => row.testSample > 0);
+    const averageTestHitRate = validWindows.length
+      ? validWindows.reduce((acc, row) => acc + row.testHitRate, 0) / validWindows.length
+      : 0;
+    const averageDrift = validWindows.length
+      ? validWindows.reduce((acc, row) => acc + row.drift, 0) / validWindows.length
+      : 0;
+    return {
+      symbol,
+      lookback,
+      trainWindow,
+      testWindow,
+      windows,
+      averageTestHitRate: Number(averageTestHitRate.toFixed(4)),
+      averageDrift: Number(averageDrift.toFixed(4)),
+      windowCount: windows.length
+    };
+  }
+
+  getCalibrationBin(confidence) {
+    const value = Math.max(0, Math.min(1, Number(confidence || 0)));
+    const scaled = Math.floor(value * 10);
+    return Number((scaled / 10).toFixed(1));
+  }
+
+  normalizeCalibrationMap(map = {}) {
+    const normalized = {};
+    for (const [key, value] of Object.entries(map || {})) {
+      const total = Number(value?.total || 0);
+      const wins = Number(value?.wins || 0);
+      normalized[key] = { total, wins };
+    }
+    return normalized;
+  }
+
+  applyConfidenceCalibration(rawConfidence, calibration = {}) {
+    const bin = this.getCalibrationBin(rawConfidence).toFixed(1);
+    const row = calibration[bin];
+    if (!row || Number(row.total || 0) < CALIBRATION_MIN_BIN_SAMPLES) return Number(rawConfidence);
+    return Number((Number(row.wins || 0) / Number(row.total || 1)).toFixed(3));
+  }
+
+  getReliabilityWeight(agentName, regime = {}) {
+    const metrics = this.systemConfig.agentReliability?.[agentName];
+    if (!metrics) return 1;
+    const key = `${regime.trendState || 'UNKNOWN'}|${regime.volBucket || 'UNKNOWN'}|${regime.eventDay || 'NORMAL'}`;
+    const row = metrics.byRegime?.[key] || metrics.global || null;
+    if (!row) return 1;
+    const total = Number(row.total || 0);
+    const wins = Number(row.wins || 0);
+    const smoothedHitRate = (wins + RELIABILITY_PRIOR_SAMPLES * 0.5) / (total + RELIABILITY_PRIOR_SAMPLES);
+    const reliabilityScale = 1 + (smoothedHitRate - 0.5);
+    return Number(Math.max(RELIABILITY_MIN_WEIGHT, Math.min(RELIABILITY_MAX_WEIGHT, reliabilityScale)).toFixed(3));
+  }
+
+  async updateReliabilityFromOutcome(setup, outcome) {
+    const wins = Number(outcome.pnl || 0) > 0 ? 1 : 0;
+    const audits = this.decisionAudits.filter((item) => item.runId === setup.runId);
+    const nextReliability = cloneJson(this.systemConfig.agentReliability || {});
+    for (const audit of audits) {
+      for (const vote of audit.agentVotes || []) {
+        const agentName = String(vote.agent || '');
+        if (!agentName) continue;
+        if (!nextReliability[agentName]) nextReliability[agentName] = { global: { wins: 0, total: 0 }, byRegime: {} };
+        nextReliability[agentName].global.wins += wins;
+        nextReliability[agentName].global.total += 1;
+        const regimeKey = `${setup?.regime?.trendState || 'UNKNOWN'}|${setup?.regime?.volBucket || 'UNKNOWN'}|${setup?.regime?.eventDay || 'NORMAL'}`;
+        if (!nextReliability[agentName].byRegime[regimeKey]) nextReliability[agentName].byRegime[regimeKey] = { wins: 0, total: 0 };
+        nextReliability[agentName].byRegime[regimeKey].wins += wins;
+        nextReliability[agentName].byRegime[regimeKey].total += 1;
+      }
+    }
+    const nextCalibration = this.normalizeCalibrationMap(this.systemConfig.confidenceCalibration || {});
+    const bin = this.getCalibrationBin(setup?.confidence || 0).toFixed(1);
+    if (!nextCalibration[bin]) nextCalibration[bin] = { wins: 0, total: 0 };
+    nextCalibration[bin].wins += wins;
+    nextCalibration[bin].total += 1;
+    this.systemConfig = {
+      ...this.systemConfig,
+      agentReliability: nextReliability,
+      confidenceCalibration: nextCalibration
     };
   }
 

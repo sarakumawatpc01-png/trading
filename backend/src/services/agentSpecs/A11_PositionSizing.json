@@ -1,0 +1,42 @@
+{
+  "agent": "A11_PositionSizing",
+  "instruction": "Specialist A11_PositionSizing: own the position_sizing layer, produce auditable signal reasoning, and enforce risk-first gating before contributing to final decision.",
+  "knowledge": "Knowledge v2: India/NSE market microstructure, regime-sensitive behavior, session dynamics, and strict normalization/risk constraints tailored for position_sizing.",
+  "skill": {
+    "profileVersion": "v2",
+    "role": "specialist",
+    "mode": "deterministic-evaluable",
+    "objectives": [
+      "maximize signal quality for owned domain",
+      "minimize false positives via explicit risk gates",
+      "emit concise machine-readable rationale fields"
+    ],
+    "domain": "position_sizing",
+    "focus": [
+      "capital allocation",
+      "vol-adjusted size",
+      "drawdown awareness"
+    ],
+    "primarySignal": "size_safety_score",
+    "riskRule": "never exceed configured risk per setup",
+    "outputContract": {
+      "scoreRange": [
+        0,
+        10
+      ],
+      "confidenceRange": [
+        0,
+        1
+      ],
+      "requiredFields": [
+        "bias",
+        "confidence",
+        "trace"
+      ]
+    },
+    "escalationRules": {
+      "onConflict": "reduce conviction and request WAIT bias",
+      "onLowDataQuality": "return neutral with anomaly flag"
+    }
+  }
+}
