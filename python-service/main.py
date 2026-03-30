@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Dict, List
+from typing import Dict, List, TypedDict
 
 import httpx
 from fastapi import FastAPI
@@ -29,9 +29,14 @@ MOCK_BASE_PRICE = 100
 MOCK_PRICE_VARIANCE = 50
 IST_ZONE = ZoneInfo('Asia/Kolkata')
 WEIGHT_SUM_TOLERANCE = 0.0001
+class ConfigCache(TypedDict):
+    data: Dict
+    fetched_at: float
+
+
 CONFIG_LOCK = asyncio.Lock()
 BUCKET_LOCK = asyncio.Lock()
-CONFIG_CACHE: Dict[str, Dict] = {'data': {}, 'fetched_at': 0.0}
+CONFIG_CACHE: ConfigCache = {'data': {}, 'fetched_at': 0.0}
 BUCKET_CACHE: Dict[str, List[str]] = {'oneSecond': [], 'fiveSecond': [], 'sixtySecond': []}
 
 app = FastAPI(title='Oracle Python Service')

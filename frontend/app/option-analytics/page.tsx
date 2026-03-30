@@ -72,11 +72,11 @@ export default function OptionAnalyticsPage() {
       .then((data) => {
         setConfig(data);
         const priority = data.optionAnalytics?.priorityOrder?.length
-          ? data.optionAnalytics?.priorityOrder
+          ? data.optionAnalytics.priorityOrder
           : DEFAULT_INDICATORS;
-        setIndicatorOptions(priority || DEFAULT_INDICATORS);
-        setSelectedIndicator((priority && priority[0]) || DEFAULT_INDICATORS[0]);
-        setActiveIndicators((prev) => (prev.length ? prev : (priority || DEFAULT_INDICATORS).slice(0, 4)));
+        setIndicatorOptions(priority);
+        setSelectedIndicator(priority[0] || DEFAULT_INDICATORS[0]);
+        setActiveIndicators((prev) => (prev.length ? prev : priority.slice(0, 4)));
       })
       .catch((error) => {
         console.error('Failed to load option analytics config', error);
