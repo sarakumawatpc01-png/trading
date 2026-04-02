@@ -43,7 +43,7 @@ const pipeline = new PipelineService({
 });
 
 const ingestion = new IngestionService(store, logger);
-const app = createApp({ store, pipeline, logger, ingestion, agents, pythonClient, backtester });
+const app = createApp({ store, pipeline, logger, ingestion, agents, pythonClient, backtester, config });
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });

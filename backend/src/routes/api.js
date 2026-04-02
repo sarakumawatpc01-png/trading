@@ -421,7 +421,9 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   }
 
   router.use((err, _req, res, _next) => {
-    res.status(400).json({ error: err.message });
+    const safeMessage = err?.statusCode && err.statusCode >= 500 ? 'Internal server error' : (err.message || 'Bad request');
+    const status = Number.isInteger(err?.statusCode) ? err.statusCode : 400;
+    res.status(status).json({ error: safeMessage });
   });
 
   return router;
