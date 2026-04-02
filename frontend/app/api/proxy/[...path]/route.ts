@@ -19,7 +19,7 @@ async function proxy(request: NextRequest, path: string[]) {
     headers.set('x-admin-key', ADMIN_API_KEY);
   }
 
-  const bodyAllowed = !['GET', 'HEAD'].includes(request.method.toUpperCase());
+  const bodyAllowed = !['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase());
   const response = await fetch(buildTargetUrl(request, path), {
     method: request.method,
     headers,

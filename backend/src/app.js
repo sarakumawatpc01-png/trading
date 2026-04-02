@@ -46,7 +46,6 @@ function createAdminRateLimitMiddleware(config) {
     max: config.adminRateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { trustProxy: false },
     message: { error: 'Too many requests' }
   });
 }
