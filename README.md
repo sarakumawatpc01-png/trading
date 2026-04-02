@@ -52,8 +52,14 @@ docker-compose up --build
 3. Open:
 
 - Frontend dashboard: `http://localhost:3000`
-- Backend API: `http://localhost:8080/api/health`
-- Python service: `http://localhost:8000/health`
+- Backend API (internal/private in compose): `http://backend:8080/api/health`
+- Python service (internal/private in compose): `http://python-service:8000/health`
+
+## Production deployment (VPS + NPM)
+
+- Follow `/PRODUCTION_READINESS.md` for hardened production setup.
+- Public entrypoint should be Nginx Proxy Manager only.
+- `/api/admin/*` endpoints are protected by backend `x-admin-key` header enforcement.
 
 ## Key API Examples
 
@@ -69,6 +75,7 @@ curl -X POST http://localhost:8080/api/ai/query \
 
 ```bash
 curl -X POST http://localhost:8080/api/admin/manual-analysis \
+  -H "x-admin-key: ${ADMIN_API_KEY}" \
   -H 'Content-Type: application/json' \
   -d '{"symbol":"TCS","price":120}'
 ```
@@ -77,6 +84,7 @@ curl -X POST http://localhost:8080/api/admin/manual-analysis \
 
 ```bash
 curl -X PATCH http://localhost:8080/api/admin/config \
+  -H "x-admin-key: ${ADMIN_API_KEY}" \
   -H 'Content-Type: application/json' \
   -d '{"brainInstructions":"Prioritize regime alignment and avoid low liquidity sessions."}'
 ```

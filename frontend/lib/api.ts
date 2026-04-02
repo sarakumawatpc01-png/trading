@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8080/api';
+const BASE = process.env.NEXT_PUBLIC_API_BASE || '/api/proxy';
 
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache: 'no-store' });

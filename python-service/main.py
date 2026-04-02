@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://backend:8080')
+ADMIN_API_KEY = os.getenv('ADMIN_API_KEY', '')
 PREFILTER_INTERVAL_SEC = int(os.getenv('PREFILTER_INTERVAL_SEC', '10'))
 ONE_SECOND_INTERVAL_SEC = int(os.getenv('PREFILTER_ONE_SEC_INTERVAL', '1'))
 FIVE_SECOND_INTERVAL_SEC = int(os.getenv('PREFILTER_FIVE_SEC_INTERVAL', '5'))
@@ -140,8 +141,9 @@ async def fetch_system_config() -> Dict:
         if CONFIG_CACHE['data'] and (now - CONFIG_CACHE['fetched_at']) < CONFIG_REFRESH_SEC:
             return CONFIG_CACHE['data']
         try:
+            headers = {'x-admin-key': ADMIN_API_KEY} if ADMIN_API_KEY else {}
             async with httpx.AsyncClient(timeout=6) as client:
-                res = await client.get(f'{BACKEND_URL}/api/admin/config')
+                res = await client.get(f'{BACKEND_URL}/api/admin/config', headers=headers)
                 res.raise_for_status()
                 CONFIG_CACHE['data'] = res.json()
                 CONFIG_CACHE['fetched_at'] = now

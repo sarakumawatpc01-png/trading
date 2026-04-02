@@ -1,44 +1,114 @@
 services:
   backend:
     build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      BACKEND_PORT: 8080
-      REDIS_URL: redis://redis:6379
-      CLICKHOUSE_URL: http://clickhouse:8123
-      PYTHON_SERVICE_URL: http://python-service:8000
-      USE_INMEMORY_QUEUE: "false"
-    ports:
-      - "8080:8080"
+      NODE_ENV: ${NODE_ENV:-production}
+      BACKEND_PORT: ${BACKEND_PORT:-8080}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL:-http://python-service:8000}
+      USE_INMEMORY_QUEUE: ${USE_INMEMORY_QUEUE:-false}
+      QUEUE_CONCURRENCY: ${QUEUE_CONCURRENCY:-5}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      ADMIN_API_ENFORCE: ${ADMIN_API_ENFORCE:-true}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1mb}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      ADMIN_RATE_LIMIT_WINDOW_MS: ${ADMIN_RATE_LIMIT_WINDOW_MS:-60000}
+      ADMIN_RATE_LIMIT_MAX: ${ADMIN_RATE_LIMIT_MAX:-120}
     depends_on:
-      - redis
-      - clickhouse
-      - python-service
+      redis:
+        condition: service_started
+      clickhouse:
+        condition: service_started
+      python-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - trading-private
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      NEXT_PUBLIC_API_BASE: http://localhost:8080/api
-      NEXT_PUBLIC_WS_BASE: ws://localhost:8080
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-/api/proxy}
+      NEXT_PUBLIC_WS_BASE: ${NEXT_PUBLIC_WS_BASE:-}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8080}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - trading-private
 
   python-service:
     build: ./python-service
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      BACKEND_URL: http://backend:8080
-      PREFILTER_INTERVAL_SEC: 15
-    ports:
-      - "8000:8000"
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8080}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      PREFILTER_INTERVAL_SEC: ${PREFILTER_INTERVAL_SEC:-15}
+      PREFILTER_ONE_SEC_INTERVAL: ${PREFILTER_ONE_SEC_INTERVAL:-1}
+      PREFILTER_FIVE_SEC_INTERVAL: ${PREFILTER_FIVE_SEC_INTERVAL:-5}
+      PREFILTER_SIXTY_SEC_INTERVAL: ${PREFILTER_SIXTY_SEC_INTERVAL:-60}
+      PREFILTER_CONFIG_REFRESH_SEC: ${PREFILTER_CONFIG_REFRESH_SEC:-30}
+      PREFILTER_MOMENTUM_MODULUS: ${PREFILTER_MOMENTUM_MODULUS:-10}
+      PREFILTER_VOLUME_MODULUS: ${PREFILTER_VOLUME_MODULUS:-7}
+      PREFILTER_MOMENTUM_WEIGHT: ${PREFILTER_MOMENTUM_WEIGHT:-0.6}
+      PREFILTER_VOLUME_WEIGHT: ${PREFILTER_VOLUME_WEIGHT:-0.4}
+      PREFILTER_TRIGGER_THRESHOLD: ${PREFILTER_TRIGGER_THRESHOLD:-4.2}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).getcode()==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - trading-private
 
   redis:
     image: redis:7.2-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - trading-private
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
-    ports:
-      - "8123:8123"
-      - "9000:9000"
+    restart: unless-stopped
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks:
+      - trading-private
+
+volumes:
+  redis-data:
+  clickhouse-data:
+
+networks:
+  trading-private:
+    driver: bridge
