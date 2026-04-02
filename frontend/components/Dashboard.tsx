@@ -278,7 +278,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
-    const wsBase = (process.env.NEXT_PUBLIC_WS_BASE || 'ws://localhost:8080').replace(/\/$/, '');
+    const configuredWsBase = process.env.NEXT_PUBLIC_WS_BASE;
+    if (!configuredWsBase) return;
+    const wsBase = configuredWsBase.replace(/\/$/, '');
     const ws = new WebSocket(`${wsBase}/ws`);
     ws.onmessage = () => load();
     return () => ws.close();
