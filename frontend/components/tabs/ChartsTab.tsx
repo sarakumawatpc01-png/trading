@@ -29,7 +29,7 @@ export default function ChartsTab() {
     <div className="space-y-4">
       <div className="oracle-card flex flex-wrap gap-2 items-center">
         <span className="text-sm text-oracle-text-secondary">Instrument</span>
-        <input className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} />
+        <input aria-label="Trading symbol or instrument" placeholder="e.g. NIFTY or RELIANCE" className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} />
         <span className="text-xs text-oracle-text-secondary">Prompt-aligned charts scaffold (OHLCV + levels + signals)</span>
       </div>
       <section className="grid lg:grid-cols-3 gap-4">

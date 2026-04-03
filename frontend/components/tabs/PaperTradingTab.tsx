@@ -61,15 +61,15 @@ export default function PaperTradingTab() {
               <span>{trade.symbol}</span>
               <span>{trade.status}</span>
               <span>Entry {trade.entryPrice}</span>
-              <button className="px-2 py-1 rounded bg-oracle-green text-black text-xs" onClick={async () => {
+              <button aria-label="Grade trade as agree" className="px-2 py-1 rounded bg-oracle-green text-black text-xs" onClick={async () => {
                 await apiPatch(`/papertrading/${trade.id}/grade`, { verdict: 'AGREE' });
                 await load();
               }}>AGREE</button>
-              <button className="px-2 py-1 rounded bg-oracle-red text-white text-xs" onClick={async () => {
+              <button aria-label="Grade trade as disagree" className="px-2 py-1 rounded bg-oracle-red text-white text-xs" onClick={async () => {
                 await apiPatch(`/papertrading/${trade.id}/grade`, { verdict: 'DISAGREE' });
                 await load();
               }}>DISAGREE</button>
-              <button className="px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border text-xs" onClick={async () => {
+              <button aria-label="Grade trade as neutral" className="px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border text-xs" onClick={async () => {
                 await apiPatch(`/papertrading/${trade.id}/grade`, { verdict: 'NEUTRAL' });
                 await load();
               }}>NEUTRAL</button>

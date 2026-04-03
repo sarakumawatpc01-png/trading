@@ -10,7 +10,6 @@ const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient, backtester }) {
   const router = express.Router();
-  const learningSuggestions = [];
 
   const stockSchema = z.object({ symbol: z.string().min(1).max(MAX_BASE_SYMBOL_LENGTH + NSE_DOT_SUFFIX_LENGTH) });
   const analyzeSchema = z.object({ symbol: z.string().min(1), price: z.number().positive().default(100) });
@@ -511,7 +510,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     const closed = trades.filter((trade) => trade.status === 'CLOSED');
     const takenRealizedPnl = closed.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0);
     const skippedPotentialPoints = skippedSetups.reduce((sum, setup) => {
-      const entry = Number(setup.triggerPrice || String(setup.entryZone || '').split('-')[0] || 0);
+      const entry = extractEntryPrice(setup);
       const tp1 = Number(setup.targets?.[0] || 0);
       return sum + Math.max(0, tp1 - entry);
     }, 0);
@@ -644,7 +643,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   });
 
   router.get('/learning/suggestions', async (_req, res) => {
-    res.json(learningSuggestions);
+    res.json(await store.listLearningSuggestions(500));
   });
 
   router.post('/learning/generate-suggestions', async (_req, res) => {
@@ -672,7 +671,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
         createdAt: new Date().toISOString()
       }
     ];
-    learningSuggestions.unshift(...generated);
+    await store.addLearningSuggestions(generated);
     await logger.log('info', 'Learning suggestions generated', { count: generated.length });
     res.status(201).json(generated);
   });
@@ -683,12 +682,8 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
         decision: z.enum(['APPROVE', 'REJECT', 'DEFER']),
         reason: z.string().optional()
       }).parse(req.body || {});
-      const row = learningSuggestions.find((item) => item.id === req.params.id);
+      const row = await store.decideLearningSuggestion(req.params.id, body.decision, body.reason || null);
       if (!row) return res.status(404).json({ error: 'Suggestion not found' });
-      row.status = body.decision;
-      row.decisionReason = body.reason || null;
-      row.implementationStatus = body.decision === 'APPROVE' ? 'Queued for Sunday 11 PM implementation' : null;
-      row.decidedAt = new Date().toISOString();
       await logger.log('info', 'Learning suggestion decision recorded', { id: row.id, decision: body.decision });
       res.json(row);
     } catch (err) { next(err); }
@@ -710,6 +705,19 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
     return Math.min(Math.floor(parsed), max);
+  }
+
+  /**
+   * Extracts an entry price from a setup object.
+   * Prefers numeric triggerPrice when available.
+   * Falls back to parsing the first numeric value from entryZone, where entryZone is expected in formats like "123.4-125.0".
+   * Returns 0 when no valid price can be derived.
+   */
+  function extractEntryPrice(setup) {
+    const triggerPrice = Number(setup?.triggerPrice || 0);
+    if (triggerPrice > 0) return triggerPrice;
+    const firstZoneValue = Number(String(setup?.entryZone || '').split('-')[0] || 0);
+    return Number.isFinite(firstZoneValue) ? firstZoneValue : 0;
   }
 
   router.use((err, _req, res, _next) => {

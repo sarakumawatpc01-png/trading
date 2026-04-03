@@ -43,15 +43,15 @@ export default function LearningTab() {
             <div className="mt-1">Impact: {row.expectedImpact}</div>
             <div className="mt-1">Backtest: {row.backtestEvidence}</div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <button className="px-2 py-1 rounded bg-oracle-green text-black text-xs" onClick={async () => {
+              <button aria-label="Approve suggestion" className="px-2 py-1 rounded bg-oracle-green text-black text-xs" onClick={async () => {
                 await apiPost(`/learning/approve/${row.id}`, { decision: 'APPROVE' });
                 await load();
               }}>APPROVE</button>
-              <button className="px-2 py-1 rounded bg-oracle-red text-white text-xs" onClick={async () => {
+              <button aria-label="Reject suggestion" className="px-2 py-1 rounded bg-oracle-red text-white text-xs" onClick={async () => {
                 await apiPost(`/learning/approve/${row.id}`, { decision: 'REJECT' });
                 await load();
               }}>REJECT</button>
-              <button className="px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border text-xs" onClick={async () => {
+              <button aria-label="Defer suggestion" className="px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border text-xs" onClick={async () => {
                 await apiPost(`/learning/approve/${row.id}`, { decision: 'DEFER' });
                 await load();
               }}>DEFER</button>

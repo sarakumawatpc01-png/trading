@@ -37,11 +37,11 @@ export default function NotificationsTab() {
     <div className="space-y-4">
       <section className="oracle-card flex flex-wrap gap-4 text-sm">
         <label className="flex items-center gap-2">
-          <input type="checkbox" checked={showSystem} onChange={(event) => setShowSystem(event.target.checked)} />
+          <input aria-label="Filter system alerts" type="checkbox" checked={showSystem} onChange={(event) => setShowSystem(event.target.checked)} />
           System Alerts
         </label>
         <label className="flex items-center gap-2">
-          <input type="checkbox" checked={showInfo} onChange={(event) => setShowInfo(event.target.checked)} />
+          <input aria-label="Filter info feed notifications" type="checkbox" checked={showInfo} onChange={(event) => setShowInfo(event.target.checked)} />
           Info / Feed
         </label>
       </section>

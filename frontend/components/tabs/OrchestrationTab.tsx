@@ -39,7 +39,9 @@ export default function OrchestrationTab() {
           runId: parsed.payload?.runId || null,
           createdAt: new Date(parsed.payload?.timestamp || Date.now()).toISOString()
         }, ...prev].slice(0, 300));
-      } catch (_error) {}
+      } catch (error) {
+        console.error('Malformed pipeline activity message', { error, raw: event.data });
+      }
     };
     return () => {
       clearInterval(timer);

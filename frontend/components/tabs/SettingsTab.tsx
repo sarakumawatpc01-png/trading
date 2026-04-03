@@ -37,6 +37,7 @@ export default function SettingsTab() {
         <div className="grid md:grid-cols-2 gap-3">
           <input
             type="password"
+            aria-label="Kite API Key"
             className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm"
             placeholder="API Key"
             value={settings.apiKey}
@@ -44,12 +45,14 @@ export default function SettingsTab() {
           />
           <input
             type="password"
+            aria-label="Kite Access Token"
             className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm"
             placeholder="Access Token"
             value={settings.accessToken}
             onChange={(event) => setSettings((prev) => ({ ...prev, accessToken: event.target.value }))}
           />
           <select
+            aria-label="Kite connection mode"
             className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm"
             value={settings.mode}
             onChange={(event) => setSettings((prev) => ({ ...prev, mode: event.target.value as KiteSettings['mode'] }))}
@@ -60,6 +63,7 @@ export default function SettingsTab() {
           </select>
           <label className="text-sm flex items-center gap-2">
             <input
+              aria-label="Enable Kite auto-refresh"
               type="checkbox"
               checked={Boolean(settings.autoRefresh)}
               onChange={(event) => setSettings((prev) => ({ ...prev, autoRefresh: event.target.checked }))}
@@ -71,11 +75,11 @@ export default function SettingsTab() {
           <div className="text-xs text-oracle-orange mt-2">Order book analysis requires FULL mode.</div>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
-          <button className="px-3 py-2 rounded bg-oracle-gold text-black text-sm" onClick={async () => {
+          <button aria-label="Test Kite connection" className="px-3 py-2 rounded bg-oracle-gold text-black text-sm" onClick={async () => {
             const test = await apiPost<{ message?: string }>('/settings/kite/test', {}).catch(() => ({ message: 'Connection failed' }));
             setStatus(test.message || 'Test complete');
           }}>Test Connection</button>
-          <button className="px-3 py-2 rounded bg-oracle-blue text-black text-sm" onClick={async () => {
+          <button aria-label="Save Kite settings" className="px-3 py-2 rounded bg-oracle-blue text-black text-sm" onClick={async () => {
             await apiPost('/settings/kite/save', settings);
             setStatus('Settings saved');
           }}>Save</button>

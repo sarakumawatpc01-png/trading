@@ -65,6 +65,7 @@ export class InMemoryStore {
     this.decisionAudits = [];
     this.riskEvents = [];
     this.paperTrades = [];
+    this.learningSuggestions = [];
     this.logs = [];
     this.systemConfig = {
       agentWeights: {},
@@ -585,6 +586,30 @@ export class InMemoryStore {
     return this.riskEvents.slice(0, limit);
   }
 
+  async listLearningSuggestions(limit = 200) {
+    return this.learningSuggestions.slice(0, limit);
+  }
+
+  async addLearningSuggestions(rows = []) {
+    const stamped = rows.map((row) => ({
+      ...row,
+      id: row.id || uid('learning_suggestion'),
+      createdAt: row.createdAt || nowIstLocal()
+    }));
+    this.learningSuggestions.unshift(...stamped);
+    return stamped;
+  }
+
+  async decideLearningSuggestion(id, decision, reason = null) {
+    const row = this.learningSuggestions.find((item) => item.id === id);
+    if (!row) return null;
+    row.status = decision;
+    row.decisionReason = reason;
+    row.implementationStatus = decision === 'APPROVE' ? 'Queued for Sunday 11 PM implementation' : null;
+    row.decidedAt = nowIstLocal();
+    return row;
+  }
+
   async reweightAgents(weights) {
     const normalized = Object.fromEntries(
       Object.entries(weights || {}).map(([agent, value]) => [
@@ -806,6 +831,7 @@ export class InMemoryStore {
       driftLogs: cloneJson(this.driftLogs),
       decisionAudits: cloneJson(this.decisionAudits),
       riskEvents: cloneJson(this.riskEvents),
+      learningSuggestions: cloneJson(this.learningSuggestions),
       paperTrades: cloneJson(this.paperTrades),
       logs: cloneJson(this.logs),
       systemConfig: cloneJson(this.systemConfig),
@@ -827,6 +853,7 @@ export class InMemoryStore {
     this.driftLogs = cloneJson(snapshot.driftLogs || []);
     this.decisionAudits = cloneJson(snapshot.decisionAudits || []);
     this.riskEvents = cloneJson(snapshot.riskEvents || []);
+    this.learningSuggestions = cloneJson(snapshot.learningSuggestions || []);
     this.paperTrades = cloneJson(snapshot.paperTrades || []);
     this.logs = cloneJson(snapshot.logs || []);
     this.systemConfig = cloneJson(snapshot.systemConfig || {});

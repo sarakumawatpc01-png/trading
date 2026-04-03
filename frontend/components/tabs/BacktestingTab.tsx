@@ -40,14 +40,14 @@ export default function BacktestingTab() {
   return (
     <div className="space-y-4">
       <section className="oracle-card flex flex-wrap gap-2 items-center">
-        <input className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" value={instrument} onChange={(event) => setInstrument(event.target.value.toUpperCase())} />
-        <button className="px-3 py-2 rounded bg-oracle-gold text-black text-sm" onClick={loadResults}>Load Results</button>
-        <button className="px-3 py-2 rounded bg-oracle-blue text-black text-sm" onClick={runBacktest}>Run Backtest</button>
-        <button className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" onClick={async () => {
+        <input aria-label="Backtest instrument symbol" className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" value={instrument} onChange={(event) => setInstrument(event.target.value.toUpperCase())} />
+        <button aria-label="Load backtest results for selected instrument" className="px-3 py-2 rounded bg-oracle-gold text-black text-sm" onClick={loadResults}>Load Results</button>
+        <button aria-label="Run new backtest for selected instrument" className="px-3 py-2 rounded bg-oracle-blue text-black text-sm" onClick={runBacktest}>Run Backtest</button>
+        <button aria-label="Add instrument to backtest queue" className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" onClick={async () => {
           await apiPost('/backtesting/queue/add', { instrument });
           await loadQueue();
         }}>Add to Queue</button>
-        <button className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" onClick={loadQueue}>Refresh Queue</button>
+        <button aria-label="Refresh backtest queue" className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" onClick={loadQueue}>Refresh Queue</button>
       </section>
 
       {loading && <div className="text-sm text-oracle-text-secondary">Loading backtest...</div>}
