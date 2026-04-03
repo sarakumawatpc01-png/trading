@@ -5,8 +5,18 @@
 body {
   background: #090d14;
   color: #e4e8ef;
+  background-image: radial-gradient(circle at top right, rgba(96, 165, 250, 0.12), transparent 40%), radial-gradient(circle at bottom left, rgba(61, 217, 183, 0.08), transparent 45%);
 }
 
 .card {
   @apply bg-panel border border-slate-700 rounded-lg p-4 shadow-md;
+  backdrop-filter: blur(4px);
+}
+
+input, textarea, select {
+  outline: none;
+}
+
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 1px rgba(61, 217, 183, 0.65);
 }

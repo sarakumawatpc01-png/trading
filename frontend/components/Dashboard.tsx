@@ -32,6 +32,7 @@ type UiNotice = { type: 'success' | 'error' | 'info'; text: string };
 type RegimeMetric = { trendState: string; volBucket: string; eventDay: string; sampleSize: number; hitRate: number; expectancy: number; minSampleMet: boolean; confidenceInterval: { low: number; high: number } };
 type AgentContributionMetric = { agent: string; sampleSize: number; resolvedSampleSize: number; hitRate: number; contributionScore: number; realizedPnl: number };
 type SignalEffectivenessMetric = { symbol: string; decision: string; trendState: string; volBucket: string; eventDay: string; sampleSize: number; hitRate: number; expectancy: number };
+type DashboardTab = 'overview' | 'agents' | 'analytics' | 'admin' | 'backtest';
 type BacktestResult = {
   id?: string;
   symbol: string;
@@ -116,6 +117,13 @@ const DEFAULT_BUCKET_LIMITS = {
   fiveSecond: 10,
   sixtySecond: 50
 };
+const DASHBOARD_TABS: Array<{ key: DashboardTab; label: string }> = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'agents', label: 'AI Agents' },
+  { key: 'analytics', label: 'Analytics' },
+  { key: 'admin', label: 'Admin & Broker' },
+  { key: 'backtest', label: 'Backtests' }
+];
 
 export default function Dashboard() {
   const [setups, setSetups] = useState<Setup[]>([]);
@@ -139,6 +147,8 @@ export default function Dashboard() {
   const [agentContribution, setAgentContribution] = useState<AgentContributionMetric[]>([]);
   const [signalEffectiveness, setSignalEffectiveness] = useState<SignalEffectivenessMetric[]>([]);
   const [latestBacktest, setLatestBacktest] = useState<BacktestResult | null>(null);
+  const [agentNames, setAgentNames] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [configDraft, setConfigDraft] = useState({
     minSymbolWinRateForTake: DEFAULT_WIN_RATE_GATE,
@@ -158,6 +168,14 @@ export default function Dashboard() {
     includeAllAnalytics: true,
     priorityOrder: DEFAULT_PRIORITY_ORDER.join(', ')
   });
+  const [brokerDraft, setBrokerDraft] = useState({
+    provider: 'zerodha-kite',
+    environment: 'prod',
+    apiKeyEnv: 'KITE_API_KEY',
+    apiSecretEnv: 'KITE_API_SECRET',
+    redirectUrlEnv: 'KITE_REDIRECT_URL',
+    accessTokenEnv: 'KITE_ACCESS_TOKEN'
+  });
   const [loading, setLoading] = useState(false);
   const configWriterRef = useRef<DebouncedConfigWriter | null>(null);
   if (!configWriterRef.current) {
@@ -166,7 +184,7 @@ export default function Dashboard() {
 
   const load = async () => {
     setLoading(true);
-    const [s1, s2, s3, s4, c, trades, portfolio, audits, risks, regimes, contributions, effectiveness] = await Promise.all([
+    const [setupsData, signalsData, logsData, agentOutputsData, configData, trades, portfolio, audits, risks, regimes, contributions, effectiveness, agentList] = await Promise.all([
       apiGet<Setup[]>('/setups'),
       apiGet<Signal[]>('/signals'),
       apiGet<Log[]>('/logs'),
@@ -186,13 +204,14 @@ export default function Dashboard() {
       }),
       apiGet<RegimeMetric[]>('/admin/regime-matrix').catch(() => []),
       apiGet<AgentContributionMetric[]>(`/admin/agent-contribution-metrics?symbol=${encodeURIComponent(manualSymbol)}`).catch(() => []),
-      apiGet<SignalEffectivenessMetric[]>(`/admin/signal-effectiveness?symbol=${encodeURIComponent(manualSymbol)}`).catch(() => [])
+      apiGet<SignalEffectivenessMetric[]>(`/admin/signal-effectiveness?symbol=${encodeURIComponent(manualSymbol)}`).catch(() => []),
+      apiGet<string[]>('/agents').catch(() => [])
     ]);
-    setSetups(s1);
-    setSignals(s2);
-    setLogs(s3);
-    setAgentOutputs(s4);
-    setConfig(c);
+    setSetups(setupsData);
+    setSignals(signalsData);
+    setLogs(logsData);
+    setAgentOutputs(agentOutputsData);
+    setConfig(configData);
     setPaperTrades(trades);
     setPaperPortfolio(portfolio);
     setDecisionAudits(audits);
@@ -200,20 +219,21 @@ export default function Dashboard() {
     setRegimeMatrix(regimes);
     setAgentContribution(contributions);
     setSignalEffectiveness(effectiveness);
-    setInstruction(c.brainInstructions || '');
+    setAgentNames(agentList);
+    setInstruction(configData.brainInstructions || '');
     setConfigDraft({
-      minSymbolWinRateForTake: c.minSymbolWinRateForTake ?? DEFAULT_WIN_RATE_GATE,
-      setupConfidenceDecayHours: c.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS,
-      autoShutdownDrawdownPercent: c.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
+      minSymbolWinRateForTake: configData.minSymbolWinRateForTake ?? DEFAULT_WIN_RATE_GATE,
+      setupConfidenceDecayHours: configData.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS,
+      autoShutdownDrawdownPercent: configData.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
     });
-    const buckets = c.watchlistBuckets || {};
+    const buckets = configData.watchlistBuckets || {};
     setWatchlistDraft({
       oneSecond: (buckets.oneSecond?.symbols || []).join(', '),
       tradeOneSecond: (buckets.tradeOneSecond?.symbols || []).join(', '),
       fiveSecond: (buckets.fiveSecond?.symbols || []).join(', '),
       sixtySecond: (buckets.sixtySecond?.symbols || []).join(', ')
     });
-    const analytics = c.optionAnalytics || {};
+    const analytics = configData.optionAnalytics || {};
     setAnalyticsDraft({
       strikesAroundAtm: analytics.strikesAroundAtm ?? 10,
       expiries: analytics.expiries ?? 'all',
@@ -221,8 +241,17 @@ export default function Dashboard() {
       includeAllAnalytics: analytics.includeAllAnalytics ?? true,
       priorityOrder: (analytics.priorityOrder || DEFAULT_PRIORITY_ORDER).join(', ')
     });
+    const broker = configData.brokerConfig || {};
+    setBrokerDraft({
+      provider: broker.provider || 'zerodha-kite',
+      environment: broker.environment || 'prod',
+      apiKeyEnv: broker.apiKeyEnv || 'KITE_API_KEY',
+      apiSecretEnv: broker.apiSecretEnv || 'KITE_API_SECRET',
+      redirectUrlEnv: broker.redirectUrlEnv || 'KITE_REDIRECT_URL',
+      accessTokenEnv: broker.accessTokenEnv || 'KITE_ACCESS_TOKEN'
+    });
 
-    const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
+    const symbols = [...new Set(setupsData.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
     const metricsRows = await Promise.all(
       symbols.map(async (symbol) => [symbol, await apiGet<SymbolMetric>(`/metrics/${encodeURIComponent(symbol)}`)] as const)
     );
@@ -301,6 +330,29 @@ export default function Dashboard() {
     return ((paperPortfolio.initialCapital - paperPortfolio.balance) / paperPortfolio.initialCapital) * 100;
   }, [paperPortfolio]);
 
+  const decisionCounts = useMemo(() => ({
+    take: setups.filter((setup) => setup.decision === 'TAKE').length,
+    wait: setups.filter((setup) => setup.decision === 'WAIT').length,
+    skip: setups.filter((setup) => setup.decision === 'SKIP').length
+  }), [setups]);
+
+  const agentRoster = useMemo(() => {
+    return agentNames.map((name) => {
+      const latest = agentOutputs.find((output) => output.agent === name);
+      const count = agentOutputs.filter((output) => output.agent === name).length;
+      const score = latest?.score;
+      const status = score === undefined ? 'idle' : score >= 6 ? 'active' : 'monitor';
+      return {
+        name,
+        latestScore: score,
+        latestSummary: latest?.summary || 'No recent output yet.',
+        status,
+        count,
+        weight: Number(config?.agentWeights?.[name] ?? 1)
+      };
+    });
+  }, [agentNames, agentOutputs, config?.agentWeights]);
+
   const safeFormatInr = (value: unknown) => {
     const numeric = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(numeric) ? formatInr.format(numeric) : String(value ?? '');
@@ -326,6 +378,18 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <nav className="card flex flex-wrap gap-2">
+        {DASHBOARD_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-4 py-2 rounded text-sm border ${activeTab === tab.key ? 'bg-accent text-black border-accent font-semibold' : 'bg-slate-800 border-slate-600 text-slate-200'}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
       {notice && (
         <div className={`card ${notice.type === 'error' ? 'border border-rose-400 text-rose-300' : notice.type === 'success' ? 'border border-emerald-400 text-emerald-300' : 'border border-slate-500 text-slate-300'}`}>
           {notice.text}
@@ -340,9 +404,16 @@ export default function Dashboard() {
         </div>
       )}
 
+      {activeTab === 'overview' && (
+        <>
       <section className="grid md:grid-cols-3 gap-4">
         <div className="card">
           <h2 className="font-semibold mb-3">Live Setups</h2>
+          <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+            <div className="rounded bg-emerald-900/30 border border-emerald-700 p-2">TAKE {decisionCounts.take}</div>
+            <div className="rounded bg-amber-900/30 border border-amber-700 p-2">WAIT {decisionCounts.wait}</div>
+            <div className="rounded bg-rose-900/30 border border-rose-700 p-2">SKIP {decisionCounts.skip}</div>
+          </div>
           <div className="space-y-3 max-h-72 overflow-auto">
             {setups.map((setup) => (
               <details key={setup.id} className="bg-slate-900 border border-slate-700 rounded p-2">
@@ -403,7 +474,11 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+        </>
+      )}
 
+      {activeTab === 'analytics' && (
+        <>
       <section className="grid md:grid-cols-2 gap-4">
         <div className="card">
           <h2 className="font-semibold mb-3">Symbol Stats</h2>
@@ -470,7 +545,11 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+        </>
+      )}
 
+      {activeTab === 'admin' && (
+        <>
       <section className="grid md:grid-cols-2 gap-4">
         <div className="card">
           <h2 className="font-semibold mb-3">Risk Events</h2>
@@ -675,21 +754,35 @@ export default function Dashboard() {
                 />
               </div>
             </div>
-            <div className="md:col-span-2 grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <h3 className="font-medium">Broker Session &amp; Execution</h3>
-                <button className="px-4 py-2 rounded bg-rose-500 text-black font-semibold" onClick={async () => runAction(async () => {
-                  const nextValue = !config[REAL_TRADING_KEY];
-                  await apiPatch('/admin/config', { [REAL_TRADING_KEY]: nextValue });
-                  await load();
-                }, 'Execution toggle updated.', 'Failed to update execution toggle.')}>
-                  {REAL_TRADING_KEY}: {String(config[REAL_TRADING_KEY] ?? false)}
-                </button>
-                <div className="text-xs text-slate-300">Environment: {config.brokerConfig?.environment ?? 'prod'}</div>
-                <div className="text-xs text-slate-300">API key env: {config.brokerConfig?.apiKeyEnv ?? 'KITE_API_KEY'}</div>
-                <div className="text-xs text-slate-300">Redirect URL env: {config.brokerConfig?.redirectUrlEnv ?? 'KITE_REDIRECT_URL'}</div>
-                <div className="text-xs text-slate-300">Access token env: {config.brokerConfig?.accessTokenEnv ?? 'KITE_ACCESS_TOKEN'}</div>
-              </div>
+              <div className="md:col-span-2 grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h3 className="font-medium">Broker Session &amp; Execution</h3>
+                  <button className="px-4 py-2 rounded bg-rose-500 text-black font-semibold" onClick={async () => runAction(async () => {
+                    const nextValue = !config[REAL_TRADING_KEY];
+                    await apiPatch('/admin/config', { [REAL_TRADING_KEY]: nextValue });
+                    await load();
+                  }, 'Execution toggle updated.', 'Failed to update execution toggle.')}>
+                    {REAL_TRADING_KEY}: {String(config[REAL_TRADING_KEY] ?? false)}
+                  </button>
+                  <div className="grid gap-2">
+                    <label className="text-xs" htmlFor="broker-provider">Provider</label>
+                    <input id="broker-provider" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.provider} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, provider: event.target.value }))} />
+                    <label className="text-xs" htmlFor="broker-environment">Environment</label>
+                    <input id="broker-environment" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.environment} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, environment: event.target.value }))} />
+                    <label className="text-xs" htmlFor="broker-api-key-env">API key env variable name</label>
+                    <input id="broker-api-key-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.apiKeyEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, apiKeyEnv: event.target.value }))} placeholder="Example: KITE_API_KEY (env var name only)" />
+                    <label className="text-xs" htmlFor="broker-api-secret-env">API secret env variable name</label>
+                    <input id="broker-api-secret-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.apiSecretEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, apiSecretEnv: event.target.value }))} placeholder="Example: KITE_API_SECRET (env var name only)" />
+                    <label className="text-xs" htmlFor="broker-redirect-env">Redirect URL env variable name</label>
+                    <input id="broker-redirect-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.redirectUrlEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, redirectUrlEnv: event.target.value }))} placeholder="Example: KITE_REDIRECT_URL (env var name only)" />
+                    <label className="text-xs" htmlFor="broker-access-token-env">Access token env variable name</label>
+                    <input id="broker-access-token-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.accessTokenEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, accessTokenEnv: event.target.value }))} placeholder="Example: KITE_ACCESS_TOKEN (env var name only)" />
+                    <button className="px-4 py-2 rounded bg-indigo-500" onClick={async () => runAction(async () => {
+                      await apiPatch('/admin/config', { brokerConfig: brokerDraft });
+                      await load();
+                    }, 'Broker config saved.', 'Failed to save broker config.')}>Save Broker Configuration</button>
+                  </div>
+                </div>
               <div className="space-y-2">
                 <h3 className="font-medium">Option Analytics Config</h3>
                 <label className="block mb-1">Strikes around ATM (±)</label>
@@ -777,7 +870,61 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+        </>
+      )}
 
+      {activeTab === 'agents' && (
+        <>
+      <section className="grid md:grid-cols-2 gap-4">
+        <div className="card">
+          <h2 className="font-semibold mb-3">Specialist AI Agents</h2>
+          <div className="grid sm:grid-cols-2 gap-2 max-h-[28rem] overflow-auto">
+            {agentRoster.map((agent) => (
+              <div key={agent.name} className="border border-slate-700 rounded p-3">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="font-medium text-sm">{agent.name}</div>
+                  <span className={`text-[10px] px-2 py-1 rounded ${agent.status === 'active' ? 'bg-emerald-700 text-emerald-100' : agent.status === 'monitor' ? 'bg-amber-700 text-amber-100' : 'bg-slate-700 text-slate-200'}`}>
+                    {agent.status.toUpperCase()}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-300 mt-1">Weight: {agent.weight.toFixed(2)} · Output count: {agent.count}</div>
+                <div className="text-xs text-slate-400 mt-2">{agent.latestSummary}</div>
+                {agent.latestScore !== undefined && agent.latestScore !== null && (
+                  <div className="text-xs mt-2">Latest score: {agent.latestScore.toFixed(2)}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <h2 className="font-semibold mb-3">Recent Agent Outputs</h2>
+          <div className="space-y-2 max-h-[28rem] overflow-auto text-sm">
+            {topAgents.map((output) => (
+              <div key={output.id} className="border border-slate-700 rounded p-2">
+                <div className="font-medium">{output.agent} · {output.symbol}</div>
+                <div className="text-xs text-slate-300">Score: {output.score} · {output.summary}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      <section className="card">
+        <h2 className="font-semibold mb-3">Agent Contribution ({manualSymbol})</h2>
+        <div className="grid md:grid-cols-3 gap-2 text-xs">
+          {agentContribution.slice(0, 18).map((row) => (
+            <div key={row.agent} className="border border-slate-700 rounded p-2">
+              <div>{row.agent}</div>
+              <div className="text-slate-300">n={row.sampleSize}/{row.resolvedSampleSize}</div>
+              <div className="text-slate-300">hit {(row.hitRate * 100).toFixed(1)}%</div>
+              <div className="text-slate-300">contrib {row.contributionScore.toFixed(2)}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+        </>
+      )}
+
+      {activeTab === 'backtest' && (
       <section className="card">
         <h2 className="font-semibold mb-3">Backtest Integrity</h2>
         <div className="flex gap-2 mb-3">
@@ -810,6 +957,7 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }
