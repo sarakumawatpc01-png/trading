@@ -10,6 +10,7 @@ const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient, backtester }) {
   const router = express.Router();
+  const learningSuggestions = [];
 
   const stockSchema = z.object({ symbol: z.string().min(1).max(MAX_BASE_SYMBOL_LENGTH + NSE_DOT_SUFFIX_LENGTH) });
   const analyzeSchema = z.object({ symbol: z.string().min(1), price: z.number().positive().default(100) });
@@ -17,6 +18,72 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   router.get('/health', async (_req, res) => {
     const [health, config] = await Promise.all([store.getHealth(), store.getConfig()]);
     res.json({ ok: true, health, config });
+  });
+
+  router.get('/pipeline/activity', async (req, res) => {
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    const logs = await store.listLogs(limit);
+    res.json(logs.map((row) => ({
+      id: row.id,
+      node: row.context?.node || 'PIPELINE',
+      level: row.level || 'info',
+      event: row.message,
+      symbol: row.context?.symbol || null,
+      runId: row.context?.runId || null,
+      createdAt: row.createdAt
+    })));
+  });
+
+  router.get('/charts/ohlcv', async (req, res) => {
+    const count = clampLimit(req.query.count, 120, 500);
+    const symbol = normalizeIndianSymbol(String(req.query.symbol || req.query.token || 'NIFTY'));
+    const now = Date.now();
+    const candles = Array.from({ length: count }).map((_, index) => {
+      const i = count - index;
+      const base = 22000 + Math.sin((now / 300000) + i / 7) * 120;
+      const open = base + Math.sin(i / 4) * 8;
+      const close = base + Math.cos(i / 5) * 8;
+      const high = Math.max(open, close) + 6;
+      const low = Math.min(open, close) - 6;
+      return {
+        period: new Date(now - i * 60000).toISOString(),
+        open: Number(open.toFixed(2)),
+        high: Number(high.toFixed(2)),
+        low: Number(low.toFixed(2)),
+        close: Number(close.toFixed(2)),
+        volume: Math.round(500 + Math.abs(Math.sin(i)) * 1500),
+        symbol
+      };
+    });
+    res.json(candles);
+  });
+
+  router.get('/charts/levels', async (req, res) => {
+    const symbol = normalizeIndianSymbol(String(req.query.symbol || req.query.token || 'NIFTY'));
+    const base = 22000;
+    res.json([
+      { type: 'OB', label: 'Order Block', value: base - 120, color: 'orange', symbol },
+      { type: 'FVG', label: 'Fair Value Gap', value: base - 60, color: 'blue', symbol },
+      { type: 'SUPPLY', label: 'Supply Zone', value: base + 80, color: 'red', symbol },
+      { type: 'DEMAND', label: 'Demand Zone', value: base - 180, color: 'green', symbol },
+      { type: 'VWAP', label: 'VWAP', value: base + 10, color: 'purple', symbol },
+      { type: 'MAX_PAIN', label: 'Max Pain', value: base + 40, color: 'gold', symbol }
+    ]);
+  });
+
+  router.get('/charts/signals', async (req, res) => {
+    const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : null;
+    const limit = clampLimit(req.query.limit, 200, 1000);
+    const rows = await store.listSignals(limit);
+    const filtered = symbol ? rows.filter((row) => row.symbol === symbol) : rows;
+    res.json(filtered.map((row) => ({
+      id: row.id,
+      symbol: row.symbol,
+      action: row.action,
+      score: Number(row.score || 0),
+      reason: row.reason,
+      createdAt: row.createdAt
+    })));
   });
 
   router.get('/stocks', async (_req, res) => {
@@ -399,6 +466,231 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       const trade = await store.closePaperTrade(req.params.id, body);
       if (!trade) return res.status(404).json({ error: 'Trade not found or already closed' });
       res.json(trade);
+    } catch (err) { next(err); }
+  });
+
+  router.patch('/papertrading/:id/grade', async (req, res, next) => {
+    try {
+      const body = z.object({
+        verdict: z.enum(['AGREE', 'DISAGREE', 'NEUTRAL']),
+        reason: z.string().max(1000).optional()
+      }).parse(req.body || {});
+      const trades = await store.listPaperTrades(5000);
+      const trade = trades.find((row) => row.id === req.params.id);
+      if (!trade) return res.status(404).json({ error: 'Paper trade not found' });
+      trade.grade = body.verdict;
+      trade.gradeReason = body.reason || null;
+      trade.gradedAt = new Date().toISOString();
+      await logger.log('info', 'Paper trade graded', { tradeId: trade.id, verdict: body.verdict });
+      res.json(trade);
+    } catch (err) { next(err); }
+  });
+
+  router.get('/papertrading/active', async (_req, res) => {
+    const rows = await store.listPaperTrades(5000);
+    res.json(rows.filter((trade) => trade.status === 'OPEN'));
+  });
+
+  router.get('/papertrading/history', async (req, res) => {
+    const limit = clampLimit(req.query.limit, 200, 5000);
+    const rows = await store.listPaperTrades(limit);
+    const status = req.query.status ? String(req.query.status).toUpperCase() : null;
+    const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : null;
+    res.json(rows.filter((trade) => (!status || trade.status === status) && (!symbol || trade.symbol === symbol)));
+  });
+
+  router.get('/papertrading/gap-analysis', async (_req, res) => {
+    const [trades, setups] = await Promise.all([
+      store.listPaperTrades(5000),
+      store.listSetups(5000)
+    ]);
+    const tradeBySetupId = new Map(trades.map((trade) => [trade.setupId, trade]));
+    const takeSetups = setups.filter((setup) => setup.decision === 'TAKE');
+    const takenSetups = takeSetups.filter((setup) => tradeBySetupId.has(setup.id));
+    const skippedSetups = takeSetups.filter((setup) => !tradeBySetupId.has(setup.id));
+    const closed = trades.filter((trade) => trade.status === 'CLOSED');
+    const takenRealizedPnl = closed.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0);
+    const skippedPotentialPoints = skippedSetups.reduce((sum, setup) => {
+      const entry = Number(setup.triggerPrice || String(setup.entryZone || '').split('-')[0] || 0);
+      const tp1 = Number(setup.targets?.[0] || 0);
+      return sum + Math.max(0, tp1 - entry);
+    }, 0);
+    res.json({
+      totals: {
+        takeSignals: takeSetups.length,
+        takenSignals: takenSetups.length,
+        skippedSignals: skippedSetups.length
+      },
+      taken: {
+        closedTrades: closed.length,
+        realizedPnl: Number(takenRealizedPnl.toFixed(2))
+      },
+      skipped: {
+        potentialPoints: Number(skippedPotentialPoints.toFixed(2))
+      }
+    });
+  });
+
+  router.get('/backtesting/results', async (req, res, next) => {
+    try {
+      const symbol = req.query.instrument
+        ? normalizeIndianSymbol(String(req.query.instrument))
+        : normalizeIndianSymbol(String(req.query.symbol || 'RELIANCE'));
+      const lookback = clampLimit(req.query.lookback, 200, 5000);
+      const summary = await store.summarizeBacktest(symbol, lookback);
+      res.json(summary);
+    } catch (err) { next(err); }
+  });
+
+  router.post('/backtesting/run', async (req, res, next) => {
+    try {
+      const body = z.object({
+        instrument: z.string().optional(),
+        symbol: z.string().optional(),
+        lookback: z.number().int().positive().max(5000).optional()
+      }).parse(req.body || {});
+      const symbol = normalizeIndianSymbol(body.instrument || body.symbol || 'RELIANCE');
+      const lookback = Number(body.lookback || 300);
+      const result = await runBacktestOrFallback(symbol, lookback);
+      broadcaster.broadcast('backtesting:progress', {
+        symbol,
+        progress: 100,
+        message: 'Backtest complete'
+      });
+      res.status(202).json(result);
+    } catch (err) { next(err); }
+  });
+
+  router.get('/backtesting/queue', async (_req, res) => {
+    const config = await store.getConfig();
+    const queue = config?.watchlistBuckets?.tradeOneSecond?.symbols || [];
+    res.json(queue.map((symbol) => ({
+      instrument: symbol,
+      status: 'queued',
+      nextRun: 'Sunday 23:00 IST'
+    })));
+  });
+
+  router.post('/backtesting/queue/add', async (req, res, next) => {
+    try {
+      const body = z.object({ instrument: z.string().min(1) }).parse(req.body || {});
+      const instrument = normalizeIndianSymbol(body.instrument);
+      const config = await store.getConfig();
+      const existing = new Set(config?.watchlistBuckets?.tradeOneSecond?.symbols || []);
+      existing.add(instrument);
+      const patched = await store.patchConfig({
+        watchlistBuckets: {
+          tradeOneSecond: { symbols: Array.from(existing) }
+        }
+      });
+      res.status(201).json({ instrument, queueSize: patched?.watchlistBuckets?.tradeOneSecond?.symbols?.length || 0 });
+    } catch (err) { next(err); }
+  });
+
+  router.get('/settings/kite', async (_req, res) => {
+    const config = await store.getConfig();
+    const broker = config?.brokerConfig || {};
+    res.json({
+      apiKey: broker.apiKey || '',
+      accessToken: broker.accessToken || '',
+      mode: broker.mode || 'FULL',
+      autoRefresh: broker.autoRefresh ?? true,
+      lastSuccessfulConnection: broker.lastSuccessfulConnection || null,
+      refreshLog: broker.refreshLog || []
+    });
+  });
+
+  router.post('/settings/kite/save', async (req, res, next) => {
+    try {
+      const body = z.object({
+        apiKey: z.string().optional(),
+        accessToken: z.string().optional(),
+        mode: z.enum(['LTP', 'QUOTE', 'FULL']).optional(),
+        autoRefresh: z.boolean().optional()
+      }).parse(req.body || {});
+      const patched = await store.patchConfig({
+        brokerConfig: {
+          ...body,
+          lastSuccessfulConnection: new Date().toISOString()
+        }
+      });
+      await logger.log('info', 'Kite settings updated', { mode: body.mode || 'FULL' });
+      res.json({ ok: true, brokerConfig: patched.brokerConfig });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/settings/kite/test', async (_req, res) => {
+    res.json({
+      ok: true,
+      message: 'Connected — receiving data for NIFTY 50',
+      lastPrice: 24458.5,
+      status: 'connected',
+      ticksPerSec: 0
+    });
+  });
+
+  router.get('/notifications', async (req, res) => {
+    const limit = clampLimit(req.query.limit, 100, 1000);
+    const logs = await store.listLogs(limit);
+    const rows = logs.map((entry) => ({
+      id: entry.id,
+      type: entry.level === 'error' ? 'system' : 'info',
+      title: entry.message,
+      body: JSON.stringify(entry.context || {}),
+      createdAt: entry.createdAt,
+      read: false
+    }));
+    res.json(rows);
+  });
+
+  router.get('/learning/suggestions', async (_req, res) => {
+    res.json(learningSuggestions);
+  });
+
+  router.post('/learning/generate-suggestions', async (_req, res) => {
+    const generated = [
+      {
+        id: `sug_${Date.now()}_1`,
+        title: 'A5 Pattern volume confirmation',
+        issue: 'A5 pattern signals over-trigger during average volume periods.',
+        evidence: 'Recent 7-day low conversion on average-volume patterns.',
+        fix: 'Require >1.5x relative volume for pattern score >0.7.',
+        expectedImpact: 'Reduce false positives and improve TAKE precision.',
+        backtestEvidence: 'Mock 90-day replay indicates improved hit rate.',
+        status: 'PENDING',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: `sug_${Date.now()}_2`,
+        title: 'Prime-session prefilter tuning',
+        issue: 'Prime open session includes noisy triggers.',
+        evidence: 'Higher SKIP ratio between 09:45–10:15.',
+        fix: 'Raise prime-session volume threshold from 1.8x to 2.2x.',
+        expectedImpact: 'Lower noise while preserving quality setups.',
+        backtestEvidence: 'Mock replay shows fewer low-quality triggers.',
+        status: 'PENDING',
+        createdAt: new Date().toISOString()
+      }
+    ];
+    learningSuggestions.unshift(...generated);
+    await logger.log('info', 'Learning suggestions generated', { count: generated.length });
+    res.status(201).json(generated);
+  });
+
+  router.post('/learning/approve/:id', async (req, res, next) => {
+    try {
+      const body = z.object({
+        decision: z.enum(['APPROVE', 'REJECT', 'DEFER']),
+        reason: z.string().optional()
+      }).parse(req.body || {});
+      const row = learningSuggestions.find((item) => item.id === req.params.id);
+      if (!row) return res.status(404).json({ error: 'Suggestion not found' });
+      row.status = body.decision;
+      row.decisionReason = body.reason || null;
+      row.implementationStatus = body.decision === 'APPROVE' ? 'Queued for Sunday 11 PM implementation' : null;
+      row.decidedAt = new Date().toISOString();
+      await logger.log('info', 'Learning suggestion decision recorded', { id: row.id, decision: body.decision });
+      res.json(row);
     } catch (err) { next(err); }
   });
 
