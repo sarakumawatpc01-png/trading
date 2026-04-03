@@ -13,6 +13,7 @@ import { PythonClient } from './services/pythonClient.js';
 import { BacktesterService } from './services/backtester.js';
 import { DriftMonitorService } from './services/driftMonitor.js';
 import { PaperTraderService } from './services/paperTrader.js';
+import { TickStreamService } from './services/tickStream.js';
 import { createApp } from './app.js';
 import { InMemoryQueue, createRedisQueue } from './queue/queue.js';
 import { normalizeIndianSymbol } from './utils/symbol.js';
@@ -26,6 +27,7 @@ const pythonClient = new PythonClient(config);
 const backtester = new BacktesterService(store);
 const paperTrader = new PaperTraderService(store);
 const driftMonitor = new DriftMonitorService(store, agents);
+const tickStream = new TickStreamService({ store, broadcaster, logger });
 
 const queue = config.useInMemoryQueue
   ? new InMemoryQueue(logger)
@@ -70,6 +72,7 @@ async function bootstrap() {
     await store.setHealth({ python: pyHealth.status || 'unknown' });
 
     pipeline.startWorker();
+    await tickStream.start();
 
     await store.addStock(normalizeIndianSymbol('RELIANCE'), { sector: 'Energy' });
     await store.addStock(normalizeIndianSymbol('TCS'), { sector: 'IT' });

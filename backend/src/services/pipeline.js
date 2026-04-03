@@ -22,6 +22,13 @@ export class PipelineService {
     };
     await this.queue.add({ runId, trigger: normalizedTrigger, requestedAt: Date.now() });
     await this.logger.log('info', 'Analysis enqueued', { runId, symbol: normalizedTrigger.symbol });
+    this.emitActivity({
+      runId,
+      node: 'PRE-FILTER',
+      level: 'info',
+      event: 'Analysis enqueued',
+      symbol: normalizedTrigger.symbol
+    });
     return { runId };
   }
 
@@ -30,6 +37,13 @@ export class PipelineService {
       const started = Date.now();
       try {
         await this.logger.log('info', 'Pipeline started', { runId, symbol: trigger.symbol });
+        this.emitActivity({
+          runId,
+          node: 'PRE-FILTER',
+          level: 'info',
+          event: 'Pipeline started',
+          symbol: trigger.symbol
+        });
 
         const agentOutputs = await this.agents.runAll({
           symbol: trigger.symbol,
@@ -60,6 +74,13 @@ export class PipelineService {
         });
 
         const setup = await this.store.addSetup(result.setup);
+        this.emitActivity({
+          runId,
+          node: 'BRAIN AI',
+          level: 'success',
+          event: `Brain decision ${setup.decision}`,
+          symbol: trigger.symbol
+        });
         const signal = await this.store.addSignal({
           symbol: trigger.symbol,
           action: setup.decision,
@@ -78,6 +99,13 @@ export class PipelineService {
         this.broadcaster.broadcast('setup', setup);
         this.broadcaster.broadcast('signal', signal);
         if (paperTrade) this.broadcaster.broadcast('paper-trade', paperTrade);
+        this.emitActivity({
+          runId,
+          node: 'GRAND SYNTHESIS',
+          level: 'success',
+          event: `Signal ${signal.action} generated`,
+          symbol: trigger.symbol
+        });
 
         await this.logger.log('info', 'Pipeline completed', {
           runId,
@@ -88,10 +116,31 @@ export class PipelineService {
           stdev: result.stdev,
           ev: result.ev
         });
+        this.emitActivity({
+          runId,
+          node: 'TELEGRAM',
+          level: 'success',
+          event: 'Pipeline completed',
+          symbol: trigger.symbol
+        });
       } catch (err) {
         await this.logger.log('error', 'Pipeline failed', { runId, error: err.message });
+        this.emitActivity({
+          runId,
+          node: 'PIPELINE',
+          level: 'error',
+          event: `Pipeline failed: ${err.message}`,
+          symbol: trigger.symbol
+        });
         throw err;
       }
+    });
+  }
+
+  emitActivity(payload) {
+    this.broadcaster.broadcast('pipeline:activity', {
+      ...payload,
+      timestamp: Date.now()
     });
   }
 }

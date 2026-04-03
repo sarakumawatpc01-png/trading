@@ -58,13 +58,19 @@ export class InMemoryStore {
     this.setupById = new Map();
     this.setupsBySymbol = new Map();
     this.agentOutputs = [];
-    this.agentSpecs = loadAgentSpecsFromFiles({ agents: AGENTS, specVersion: AGENT_SPEC_VERSION });
+    this.defaultAgentSpecs = loadAgentSpecsFromFiles({ agents: AGENTS, specVersion: AGENT_SPEC_VERSION });
+    this.agentSpecs = cloneJson(this.defaultAgentSpecs);
     this.outcomes = [];
     this.backtests = [];
     this.driftLogs = [];
     this.decisionAudits = [];
     this.riskEvents = [];
     this.paperTrades = [];
+    this.learningSuggestions = [];
+    this.tickSeries = [];
+    this.orderBookSnapshots = new Map();
+    this.deltaSeriesBySymbol = new Map();
+    this.tickStats = { ticksPerSec: 0, lastTickAt: null };
     this.logs = [];
     this.systemConfig = {
       agentWeights: {},
@@ -159,6 +165,75 @@ export class InMemoryStore {
   }
   async listSignals(limit = 50) { return this.signals.slice(0, limit); }
 
+  async addTick(tick) {
+    const row = {
+      id: uid('tick'),
+      ...tick,
+      createdAt: nowIstLocal()
+    };
+    this.tickSeries.unshift(row);
+    if (this.tickSeries.length > 5000) this.tickSeries.length = 5000;
+
+    if (row.symbol) {
+      this.orderBookSnapshots.set(row.symbol, {
+        symbol: row.symbol,
+        bid: Array.isArray(row.depth?.buy) ? row.depth.buy : [],
+        ask: Array.isArray(row.depth?.sell) ? row.depth.sell : [],
+        spread: Number(Math.max(0, (Number(row.bestAsk || 0) - Number(row.bestBid || 0))).toFixed(4)),
+        bestBid: Number(row.bestBid || 0),
+        bestAsk: Number(row.bestAsk || 0),
+        lastPrice: Number(row.lastPrice || 0),
+        timestamp: row.timestamp || Date.now(),
+        wall: row.wall || null,
+        spoofAlert: row.spoofAlert || null
+      });
+      const currentDelta = this.deltaSeriesBySymbol.get(row.symbol) || [];
+      currentDelta.unshift({
+        ts: row.timestamp || Date.now(),
+        delta: Number(row.delta || 0),
+        cumulativeDelta: Number(row.cumulativeDelta || 0),
+        price: Number(row.lastPrice || 0),
+        divergence: Boolean(row.divergence)
+      });
+      if (currentDelta.length > 200) currentDelta.length = 200;
+      this.deltaSeriesBySymbol.set(row.symbol, currentDelta);
+    }
+
+    this.tickStats = {
+      ticksPerSec: Number(row.ticksPerSec || this.tickStats.ticksPerSec || 0),
+      lastTickAt: row.timestamp || Date.now()
+    };
+    return row;
+  }
+
+  async listTicks({ symbol, limit = 200 } = {}) {
+    if (!symbol) return this.tickSeries.slice(0, limit);
+    return this.tickSeries.filter((row) => row.symbol === symbol).slice(0, limit);
+  }
+
+  async getOrderBook(symbol) {
+    return this.orderBookSnapshots.get(symbol) || {
+      symbol,
+      bid: [],
+      ask: [],
+      spread: 0,
+      bestBid: 0,
+      bestAsk: 0,
+      lastPrice: 0,
+      timestamp: null,
+      wall: null,
+      spoofAlert: null
+    };
+  }
+
+  async getDeltaSeries(symbol, limit = 50) {
+    return (this.deltaSeriesBySymbol.get(symbol) || []).slice(0, limit);
+  }
+
+  async getTickStats() {
+    return this.tickStats;
+  }
+
   async addSetup(setup) {
     const row = { id: uid('setup'), ...setup, createdAt: nowIstLocal() };
     this.setups.unshift(row);
@@ -182,7 +257,9 @@ export class InMemoryStore {
   }
 
   async listAgentSpecs() { return this.agentSpecs; }
+  async listDefaultAgentSpecs() { return this.defaultAgentSpecs; }
   async getAgentSpec(name) { return this.agentSpecs[name] || null; }
+  async getDefaultAgentSpec(name) { return this.defaultAgentSpecs[name] || null; }
   async patchAgentSpec(name, partial) {
     const current = this.agentSpecs[name] || { instruction: '', knowledge: '', skill: {} };
     const next = {
@@ -199,6 +276,15 @@ export class InMemoryStore {
       Object.entries(specs).map(async ([name, partial]) => [name, await this.patchAgentSpec(name, partial)])
     );
     return Object.fromEntries(nextEntries);
+  }
+  async resetAgentSpecToDefault(name) {
+    const defaultSpec = this.defaultAgentSpecs[name];
+    if (!defaultSpec) return null;
+    this.agentSpecs[name] = {
+      ...cloneJson(defaultSpec),
+      updatedAt: nowIstLocal()
+    };
+    return this.agentSpecs[name];
   }
 
   async addLog(log) {
@@ -585,6 +671,30 @@ export class InMemoryStore {
     return this.riskEvents.slice(0, limit);
   }
 
+  async listLearningSuggestions(limit = 200) {
+    return this.learningSuggestions.slice(0, limit);
+  }
+
+  async addLearningSuggestions(rows = []) {
+    const stamped = rows.map((row) => ({
+      ...row,
+      id: row.id || uid('learning_suggestion'),
+      createdAt: row.createdAt || nowIstLocal()
+    }));
+    this.learningSuggestions.unshift(...stamped);
+    return stamped;
+  }
+
+  async decideLearningSuggestion(id, decision, reason = null) {
+    const row = this.learningSuggestions.find((item) => item.id === id);
+    if (!row) return null;
+    row.status = decision;
+    row.decisionReason = reason;
+    row.implementationStatus = decision === 'APPROVE' ? 'Queued for Sunday 11 PM implementation' : null;
+    row.decidedAt = nowIstLocal();
+    return row;
+  }
+
   async reweightAgents(weights) {
     const normalized = Object.fromEntries(
       Object.entries(weights || {}).map(([agent, value]) => [
@@ -806,6 +916,11 @@ export class InMemoryStore {
       driftLogs: cloneJson(this.driftLogs),
       decisionAudits: cloneJson(this.decisionAudits),
       riskEvents: cloneJson(this.riskEvents),
+      learningSuggestions: cloneJson(this.learningSuggestions),
+      tickSeries: cloneJson(this.tickSeries),
+      orderBookSnapshots: new Map([...this.orderBookSnapshots.entries()].map(([key, value]) => [key, cloneJson(value)])),
+      deltaSeriesBySymbol: new Map([...this.deltaSeriesBySymbol.entries()].map(([key, value]) => [key, cloneJson(value)])),
+      tickStats: cloneJson(this.tickStats),
       paperTrades: cloneJson(this.paperTrades),
       logs: cloneJson(this.logs),
       systemConfig: cloneJson(this.systemConfig),
@@ -827,6 +942,11 @@ export class InMemoryStore {
     this.driftLogs = cloneJson(snapshot.driftLogs || []);
     this.decisionAudits = cloneJson(snapshot.decisionAudits || []);
     this.riskEvents = cloneJson(snapshot.riskEvents || []);
+    this.learningSuggestions = cloneJson(snapshot.learningSuggestions || []);
+    this.tickSeries = cloneJson(snapshot.tickSeries || []);
+    this.orderBookSnapshots = new Map(snapshot.orderBookSnapshots || []);
+    this.deltaSeriesBySymbol = new Map(snapshot.deltaSeriesBySymbol || []);
+    this.tickStats = cloneJson(snapshot.tickStats || { ticksPerSec: 0, lastTickAt: null });
     this.paperTrades = cloneJson(snapshot.paperTrades || []);
     this.logs = cloneJson(snapshot.logs || []);
     this.systemConfig = cloneJson(snapshot.systemConfig || {});
