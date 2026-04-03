@@ -16,7 +16,8 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
 
   router.get('/health', async (_req, res) => {
     const [health, config] = await Promise.all([store.getHealth(), store.getConfig()]);
-    res.json({ ok: true, health, config });
+    const tickStats = await store.getTickStats();
+    res.json({ ok: true, health, config, tickStats });
   });
 
   router.get('/pipeline/activity', async (req, res) => {
@@ -31,6 +32,60 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       runId: row.context?.runId || null,
       createdAt: row.createdAt
     })));
+  });
+
+  router.get('/pipeline/node-details', async (req, res) => {
+    const node = String(req.query.node || 'PIPELINE');
+    const symbol = req.query.symbol ? normalizeIndianSymbol(String(req.query.symbol)) : null;
+    const limit = clampLimit(req.query.limit, 50, 500);
+    const [config, logs, outputs] = await Promise.all([
+      store.getConfig(),
+      store.listLogs(limit),
+      store.listAgentOutputs(limit)
+    ]);
+
+    const nodeLogs = logs.filter((row) => {
+      const message = String(row.message || '').toLowerCase();
+      const target = node.toLowerCase();
+      return message.includes(target) || String(row.context?.node || '').toLowerCase() === target;
+    });
+
+    const isAgentNode = /^A\d+/.test(node);
+    const nodeOutputs = isAgentNode
+      ? outputs.filter((row) => row.agent === node && (!symbol || row.symbol === symbol))
+      : outputs.filter((row) => (!symbol || row.symbol === symbol));
+    const latest = nodeOutputs[0] || null;
+
+    let promptPreview = '';
+    if (isAgentNode) {
+      const spec = await store.getAgentSpec(node).catch(() => null);
+      promptPreview = String(spec?.instruction || '').slice(0, 600);
+    }
+
+    res.json({
+      node,
+      lastRun: latest
+        ? {
+            input: latest.payload?.input || null,
+            output: latest.payload || latest.summary || null,
+            processingTimeMs: Number(latest.processingTimeMs || 0),
+            model: latest.model || 'default',
+            cost: Number(latest.cost || 0),
+            createdAt: latest.createdAt
+          }
+        : null,
+      performance: {
+        eventCount: nodeLogs.length,
+        outputCount: nodeOutputs.length,
+        currentWeight: isAgentNode ? Number(config?.agentWeights?.[node] ?? 1) : null,
+        trend: nodeOutputs.length > 1 ? (Number(nodeOutputs[0]?.score || 0) >= Number(nodeOutputs[1]?.score || 0) ? 'up' : 'down') : 'flat'
+      },
+      configuration: {
+        promptPreview,
+        settingsPath: isAgentNode ? `settings/agents/${node}` : 'settings',
+        nodeLogs: nodeLogs.slice(0, 10)
+      }
+    });
   });
 
   router.get('/charts/ohlcv', async (req, res) => {
@@ -68,6 +123,17 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       { type: 'VWAP', label: 'VWAP', value: base + 10, color: 'purple', symbol },
       { type: 'MAX_PAIN', label: 'Max Pain', value: base + 40, color: 'gold', symbol }
     ]);
+  });
+
+  router.get('/charts/orderbook', async (req, res) => {
+    const symbol = normalizeIndianSymbol(String(req.query.symbol || req.query.token || 'NIFTY'));
+    res.json(await store.getOrderBook(symbol));
+  });
+
+  router.get('/charts/delta', async (req, res) => {
+    const symbol = normalizeIndianSymbol(String(req.query.symbol || req.query.token || 'NIFTY'));
+    const limit = clampLimit(req.query.limit, 50, 500);
+    res.json(await store.getDeltaSeries(symbol, limit));
   });
 
   router.get('/charts/signals', async (req, res) => {

@@ -66,6 +66,10 @@ export class InMemoryStore {
     this.riskEvents = [];
     this.paperTrades = [];
     this.learningSuggestions = [];
+    this.tickSeries = [];
+    this.orderBookSnapshots = new Map();
+    this.deltaSeriesBySymbol = new Map();
+    this.tickStats = { ticksPerSec: 0, lastTickAt: null };
     this.logs = [];
     this.systemConfig = {
       agentWeights: {},
@@ -159,6 +163,75 @@ export class InMemoryStore {
     return row;
   }
   async listSignals(limit = 50) { return this.signals.slice(0, limit); }
+
+  async addTick(tick) {
+    const row = {
+      id: uid('tick'),
+      ...tick,
+      createdAt: nowIstLocal()
+    };
+    this.tickSeries.unshift(row);
+    if (this.tickSeries.length > 5000) this.tickSeries.length = 5000;
+
+    if (row.symbol) {
+      this.orderBookSnapshots.set(row.symbol, {
+        symbol: row.symbol,
+        bid: Array.isArray(row.depth?.buy) ? row.depth.buy : [],
+        ask: Array.isArray(row.depth?.sell) ? row.depth.sell : [],
+        spread: Number(Math.max(0, (Number(row.bestAsk || 0) - Number(row.bestBid || 0))).toFixed(4)),
+        bestBid: Number(row.bestBid || 0),
+        bestAsk: Number(row.bestAsk || 0),
+        lastPrice: Number(row.lastPrice || 0),
+        timestamp: row.timestamp || Date.now(),
+        wall: row.wall || null,
+        spoofAlert: row.spoofAlert || null
+      });
+      const currentDelta = this.deltaSeriesBySymbol.get(row.symbol) || [];
+      currentDelta.unshift({
+        ts: row.timestamp || Date.now(),
+        delta: Number(row.delta || 0),
+        cumulativeDelta: Number(row.cumulativeDelta || 0),
+        price: Number(row.lastPrice || 0),
+        divergence: Boolean(row.divergence)
+      });
+      if (currentDelta.length > 200) currentDelta.length = 200;
+      this.deltaSeriesBySymbol.set(row.symbol, currentDelta);
+    }
+
+    this.tickStats = {
+      ticksPerSec: Number(row.ticksPerSec || this.tickStats.ticksPerSec || 0),
+      lastTickAt: row.timestamp || Date.now()
+    };
+    return row;
+  }
+
+  async listTicks({ symbol, limit = 200 } = {}) {
+    if (!symbol) return this.tickSeries.slice(0, limit);
+    return this.tickSeries.filter((row) => row.symbol === symbol).slice(0, limit);
+  }
+
+  async getOrderBook(symbol) {
+    return this.orderBookSnapshots.get(symbol) || {
+      symbol,
+      bid: [],
+      ask: [],
+      spread: 0,
+      bestBid: 0,
+      bestAsk: 0,
+      lastPrice: 0,
+      timestamp: null,
+      wall: null,
+      spoofAlert: null
+    };
+  }
+
+  async getDeltaSeries(symbol, limit = 50) {
+    return (this.deltaSeriesBySymbol.get(symbol) || []).slice(0, limit);
+  }
+
+  async getTickStats() {
+    return this.tickStats;
+  }
 
   async addSetup(setup) {
     const row = { id: uid('setup'), ...setup, createdAt: nowIstLocal() };
@@ -832,6 +905,10 @@ export class InMemoryStore {
       decisionAudits: cloneJson(this.decisionAudits),
       riskEvents: cloneJson(this.riskEvents),
       learningSuggestions: cloneJson(this.learningSuggestions),
+      tickSeries: cloneJson(this.tickSeries),
+      orderBookSnapshots: new Map([...this.orderBookSnapshots.entries()].map(([key, value]) => [key, cloneJson(value)])),
+      deltaSeriesBySymbol: new Map([...this.deltaSeriesBySymbol.entries()].map(([key, value]) => [key, cloneJson(value)])),
+      tickStats: cloneJson(this.tickStats),
       paperTrades: cloneJson(this.paperTrades),
       logs: cloneJson(this.logs),
       systemConfig: cloneJson(this.systemConfig),
@@ -854,6 +931,10 @@ export class InMemoryStore {
     this.decisionAudits = cloneJson(snapshot.decisionAudits || []);
     this.riskEvents = cloneJson(snapshot.riskEvents || []);
     this.learningSuggestions = cloneJson(snapshot.learningSuggestions || []);
+    this.tickSeries = cloneJson(snapshot.tickSeries || []);
+    this.orderBookSnapshots = new Map(snapshot.orderBookSnapshots || []);
+    this.deltaSeriesBySymbol = new Map(snapshot.deltaSeriesBySymbol || []);
+    this.tickStats = cloneJson(snapshot.tickStats || { ticksPerSec: 0, lastTickAt: null });
     this.paperTrades = cloneJson(snapshot.paperTrades || []);
     this.logs = cloneJson(snapshot.logs || []);
     this.systemConfig = cloneJson(snapshot.systemConfig || {});
