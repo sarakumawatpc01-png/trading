@@ -7,8 +7,9 @@ const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } });
 const MAX_BASE_SYMBOL_LENGTH = 20;
 const NSE_DOT_SUFFIX_LENGTH = 3;
 const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
+// Cap used when gross losses are zero so the UI remains finite and comparable.
+// Value 10 is an intentionally high but bounded sentinel used in prior analytics views.
 const PROFIT_FACTOR_FALLBACK = 10;
-const NOTIFICATION_TYPES = ['trade_signals', 'system_alerts', 'learning_reports', 'a23_promotions', 'backtest_complete', 'paper_trade_updates', 'pre_market_reports'];
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient, backtester }) {
   const router = express.Router();
@@ -1246,7 +1247,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
   function calcProfitFactor(rows = []) {
     const wins = rows.filter((row) => Number(row.pnlPoints || 0) > 0).reduce((sum, row) => sum + Number(row.pnlPoints || 0), 0);
     const losses = Math.abs(rows.filter((row) => Number(row.pnlPoints || 0) < 0).reduce((sum, row) => sum + Number(row.pnlPoints || 0), 0));
-    if (losses <= 0) return wins > 0 ? 10 : 1;
+    if (losses <= 0) return wins > 0 ? PROFIT_FACTOR_FALLBACK : 1;
     return Number((wins / losses).toFixed(3));
   }
 

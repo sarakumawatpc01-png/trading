@@ -19,7 +19,9 @@ type OrderBook = {
   spoofAlert?: { detected: boolean; price: number; side: string; message: string } | null;
 };
 type DeltaRow = { ts: number; delta: number; cumulativeDelta: number; price: number; divergence: boolean };
+// Delta bars are normalized to this percent height cap to keep chart scale stable.
 const MAX_DELTA_BAR_HEIGHT = 100;
+// Minimum visible bar height for very small deltas so they remain readable.
 const MIN_DELTA_BAR_HEIGHT = 4;
 
 export default function ChartsTab() {

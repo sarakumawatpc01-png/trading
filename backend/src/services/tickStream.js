@@ -1,5 +1,8 @@
 const DEFAULT_TICK_INTERVAL_MS = 1000;
+// A wall disappearing within this short window is treated as potential spoof behavior.
+// 8 seconds approximates short-lived liquidity baiting in this simulated intraday stream.
 const WALL_SPOOF_WINDOW_MS = 8000;
+// Minimum aggregated top-level quantity to classify as a meaningful liquidity wall.
 const SPOOF_WALL_MIN_QTY = 100000;
 
 export class TickStreamService {
