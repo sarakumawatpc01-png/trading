@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import Dashboard from '../components/Dashboard';
+import AppShell from '../components/AppShell';
 import LoginClient from '../components/LoginClient';
 import { verifySessionToken } from '../lib/session';
 
@@ -14,5 +14,5 @@ export default async function Page() {
     return <LoginClient />;
   }
 
-  return <Dashboard />;
+  return <AppShell />;
 }
