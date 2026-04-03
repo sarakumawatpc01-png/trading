@@ -43,7 +43,7 @@ export function verifySessionToken(token: string, secret: string) {
 
   try {
     const payload = JSON.parse(decodeBase64Url(encodedPayload)) as SessionPayload;
-    if (!payload?.sub || !payload?.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (!payload?.sub || !payload?.exp || !payload?.nonce || payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch (_error) {
     return null;

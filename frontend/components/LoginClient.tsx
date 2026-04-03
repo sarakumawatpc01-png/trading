@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 export default function LoginClient() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [userId, setUserId] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,7 @@ export default function LoginClient() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ userId, password })
       });
       if (!response.ok) throw new Error('Invalid credentials.');
       router.refresh();
@@ -36,15 +36,15 @@ export default function LoginClient() {
         <div>
           <h1 className="text-2xl font-bold tracking-wide">ORACLE Login</h1>
           <p className="text-sm text-slate-300 mt-1">Sign in to access trading control panels and AI agent views.</p>
-          <p className="text-xs text-slate-400 mt-2">Set APP_USER_EMAIL, APP_USER_PASSWORD, and SESSION_SECRET in environment.</p>
+          <p className="text-xs text-slate-400 mt-2">Use the provided userid/password to sign in.</p>
         </div>
         <form className="space-y-3" onSubmit={onSubmit}>
           <input
             className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Email"
+            type="text"
+            value={userId}
+            onChange={(event) => setUserId(event.target.value)}
+            placeholder="User ID"
             required
           />
           <input

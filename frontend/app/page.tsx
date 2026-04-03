@@ -4,7 +4,7 @@ import LoginClient from '../components/LoginClient';
 import { verifySessionToken } from '../lib/session';
 
 const SESSION_COOKIE = 'oracle_session';
-const SESSION_SECRET = process.env.SESSION_SECRET || '';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'oracle-local-session-secret';
 
 export default async function Page() {
   const cookieStore = await cookies();
