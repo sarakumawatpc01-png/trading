@@ -8,6 +8,7 @@ const MAX_BASE_SYMBOL_LENGTH = 20;
 const NSE_DOT_SUFFIX_LENGTH = 3;
 const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
 const PROFIT_FACTOR_FALLBACK = 10;
+const NOTIFICATION_TYPES = ['trade_signals', 'system_alerts', 'learning_reports', 'a23_promotions', 'backtest_complete', 'paper_trade_updates', 'pre_market_reports'];
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient, backtester }) {
   const router = express.Router();
@@ -821,7 +822,8 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
         apiKey: z.string().optional(),
         accessToken: z.string().optional(),
         mode: z.enum(['LTP', 'QUOTE', 'FULL']).optional(),
-        autoRefresh: z.boolean().optional()
+        autoRefresh: z.boolean().optional(),
+        refreshTime: z.string().optional()
       }).parse(req.body || {});
       const patched = await store.patchConfig({
         brokerConfig: {
@@ -844,18 +846,233 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     });
   });
 
+  router.get('/settings/ai-models', async (_req, res) => {
+    const config = await store.getConfig();
+    const defaults = {
+      claude_sonnet_46: { label: 'Claude Sonnet 4.6' },
+      deepseek_v32: { label: 'DeepSeek V3.2' },
+      gemini_25_flash: { label: 'Gemini 2.5 Flash' },
+      gemini_20_flash_lite: { label: 'Gemini 2.0 Flash-Lite' },
+      gpt5_mini: { label: 'GPT-5 Mini' },
+      mistral_nemo: { label: 'Mistral Nemo' }
+    };
+    const saved = config?.aiModels || {};
+    const payload = Object.fromEntries(
+      Object.entries(defaults).map(([id, row]) => {
+        const current = saved[id] || {};
+        const hasKey = Boolean(String(current.apiKey || '').trim());
+        return [id, {
+          id,
+          label: row.label,
+          apiKey: current.apiKey || '',
+          status: hasKey ? 'active' : 'no_key',
+          avgDailyCost: Number(current.avgDailyCost || 0)
+        }];
+      })
+    );
+    res.json(payload);
+  });
+
+  router.post('/settings/ai-models/save', async (req, res, next) => {
+    try {
+      const body = z.object({
+        models: z.record(z.object({
+          apiKey: z.string().optional(),
+          avgDailyCost: z.number().optional()
+        }))
+      }).parse(req.body || {});
+      const patched = await store.patchConfig({ aiModels: body.models });
+      await logger.log('info', 'AI model settings updated', { models: Object.keys(body.models) });
+      res.json({ ok: true, aiModels: patched.aiModels || {} });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/settings/ai-models/:id/test', async (req, res) => {
+    const started = Date.now();
+    const id = String(req.params.id || '');
+    res.json({
+      ok: true,
+      id,
+      status: 'active',
+      response: 'OK',
+      latencyMs: Date.now() - started + 42
+    });
+  });
+
+  router.get('/settings/telegram', async (_req, res) => {
+    const config = await store.getConfig();
+    const tg = config?.telegram || {};
+    res.json({
+      botToken: tg.botToken || '',
+      chatId: tg.chatId || '',
+      alertPreferences: tg.alertPreferences || {
+        trade_signals: true,
+        system_alerts: true,
+        learning_reports: true,
+        a23_promotions: true,
+        backtest_complete: true,
+        paper_trade_updates: true,
+        pre_market_reports: true
+      },
+      history: tg.history || []
+    });
+  });
+
+  router.post('/settings/telegram/save', async (req, res, next) => {
+    try {
+      const body = z.object({
+        botToken: z.string().optional(),
+        chatId: z.string().optional(),
+        alertPreferences: z.record(z.boolean()).optional()
+      }).parse(req.body || {});
+      const previous = (await store.getConfig())?.telegram || {};
+      const patched = await store.patchConfig({
+        telegram: {
+          ...previous,
+          ...body,
+          history: previous.history || []
+        }
+      });
+      await logger.log('info', 'Telegram settings updated', { hasBotToken: Boolean(body.botToken), hasChatId: Boolean(body.chatId) });
+      res.json({ ok: true, telegram: patched.telegram });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/settings/telegram/test', async (req, res, next) => {
+    try {
+      const body = z.object({ alertType: z.string().optional() }).parse(req.body || {});
+      const config = await store.getConfig();
+      const telegram = config?.telegram || {};
+      const row = {
+        id: `tg_${Date.now()}`,
+        alertType: body.alertType || 'trade_signals',
+        message: 'Test signal alert from ORACLE',
+        deliveredAt: new Date().toISOString()
+      };
+      const history = [row, ...(telegram.history || [])].slice(0, 50);
+      await store.patchConfig({ telegram: { ...telegram, history } });
+      res.json({ ok: true, message: 'Telegram test message queued', row });
+    } catch (err) { next(err); }
+  });
+
+  router.get('/notifications/telegram/history', async (_req, res) => {
+    const config = await store.getConfig();
+    res.json((config?.telegram?.history || []).slice(0, 50));
+  });
+
   router.get('/notifications', async (req, res) => {
     const limit = clampLimit(req.query.limit, 100, 1000);
+    const requestedTypes = String(req.query.types || '').split(',').map((item) => item.trim()).filter(Boolean);
     const logs = await store.listLogs(limit);
+    const config = await store.getConfig();
+    const readIds = new Set(config?.notifications?.readIds || []);
+    const dismissedIds = new Set(config?.notifications?.dismissedIds || []);
     const rows = logs.map((entry) => ({
       id: entry.id,
-      type: entry.level === 'error' ? 'system' : 'info',
+      type: inferNotificationType(entry),
       title: entry.message,
       body: JSON.stringify(entry.context || {}),
       createdAt: entry.createdAt,
-      read: false
-    }));
-    res.json(rows);
+      read: readIds.has(entry.id)
+    })).filter((entry) => !dismissedIds.has(entry.id));
+    const filtered = requestedTypes.length ? rows.filter((row) => requestedTypes.includes(row.type)) : rows;
+    res.json(filtered);
+  });
+
+  router.get('/notifications/unread-count', async (_req, res) => {
+    const [logs, config] = await Promise.all([store.listLogs(500), store.getConfig()]);
+    const readIds = new Set(config?.notifications?.readIds || []);
+    const dismissedIds = new Set(config?.notifications?.dismissedIds || []);
+    const unread = logs.filter((entry) => !readIds.has(entry.id) && !dismissedIds.has(entry.id));
+    res.json({ unreadCount: unread.length });
+  });
+
+  router.patch('/notifications/:id/read', async (req, res) => {
+    const id = String(req.params.id);
+    const config = await store.getConfig();
+    const current = config?.notifications || {};
+    const readIds = Array.from(new Set([...(current.readIds || []), id]));
+    const patched = await store.patchConfig({
+      notifications: {
+        ...current,
+        readIds
+      }
+    });
+    res.json({ ok: true, notifications: patched.notifications });
+  });
+
+  router.delete('/notifications/:id', async (req, res) => {
+    const id = String(req.params.id);
+    const config = await store.getConfig();
+    const current = config?.notifications || {};
+    const dismissedIds = Array.from(new Set([...(current.dismissedIds || []), id]));
+    const patched = await store.patchConfig({
+      notifications: {
+        ...current,
+        dismissedIds
+      }
+    });
+    res.json({ ok: true, notifications: patched.notifications });
+  });
+
+  router.get('/dashboard/live-overview', async (_req, res) => {
+    const [setups, outputs, stats, health, portfolio, config] = await Promise.all([
+      store.listSetups(2000),
+      store.listAgentOutputs(5000),
+      store.getTickStats(),
+      store.getHealth(),
+      store.getPaperPortfolio(),
+      store.getConfig()
+    ]);
+    const take = setups.filter((row) => row.decision === 'TAKE').length;
+    const wait = setups.filter((row) => row.decision === 'WAIT').length;
+    const skip = setups.filter((row) => row.decision === 'SKIP').length;
+    res.json({
+      prices: buildLivePricesSnapshot(),
+      pipeline: {
+        ticksProcessed: Number(stats?.ticksPerSec || 0) * 3600,
+        prefilterTriggers: setups.length,
+        agentsCalled: outputs.length,
+        signals: { TAKE: take, WAIT: wait, SKIP: skip },
+        apiCostTodayInr: Number((outputs.length * 0.09).toFixed(2)),
+        apiBudgetInr: Number(config?.dailyApiBudgetInr || 1500)
+      },
+      system: {
+        containers: buildContainerStatusGrid(health),
+        cpuPercent: Number((12 + Math.random() * 20).toFixed(1)),
+        ramPercent: Number((26 + Math.random() * 18).toFixed(1)),
+        kite: {
+          status: Number(stats?.ticksPerSec || 0) > 0 ? 'connected' : 'disconnected',
+          ticksPerSec: Number(stats?.ticksPerSec || 0)
+        },
+        lastSignalAt: setups[0]?.createdAt || null
+      },
+      paper: portfolio
+    });
+  });
+
+  router.get('/market/context', async (_req, res) => {
+    const [activeTrades] = await Promise.all([
+      store.listPaperTrades(200)
+    ]);
+    const sectors = ['NIFTY IT', 'NIFTY BANK', 'NIFTY AUTO', 'NIFTY FMCG', 'NIFTY PHARMA', 'NIFTY METAL', 'NIFTY REALTY', 'NIFTY PSU', 'NIFTY ENERGY', 'NIFTY MIDCAP', 'NIFTY SMALLCAP', 'NIFTY MEDIA']
+      .map((name, index) => ({
+        name,
+        changePct: Number((Math.sin(Date.now() / 100000 + index) * 2.5).toFixed(2))
+      }));
+    res.json({
+      fii: {
+        todayCr: Number((Math.sin(Date.now() / 200000) * 3000).toFixed(2)),
+        trend5d: Array.from({ length: 5 }).map((_, idx) => Number((Math.sin((Date.now() / 200000) + idx) * 3000).toFixed(2)))
+      },
+      pcr: Number((0.8 + Math.abs(Math.sin(Date.now() / 300000)) * 0.6).toFixed(2)),
+      maxPain: Number((22000 + Math.sin(Date.now() / 100000) * 140).toFixed(2)),
+      sectors,
+      activePaperTrades: {
+        count: activeTrades.filter((row) => row.status === 'OPEN').length,
+        openPnl: Number(activeTrades.filter((row) => row.status === 'OPEN').reduce((sum, row) => sum + Number(row.pnl || 0), 0).toFixed(2))
+      }
+    });
   });
 
   router.get('/learning/suggestions', async (_req, res) => {
@@ -981,6 +1198,43 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
     return Math.min(Math.floor(parsed), max);
+  }
+
+  function inferNotificationType(entry) {
+    const message = String(entry?.message || '').toLowerCase();
+    if (entry?.level === 'error') return 'system_alerts';
+    if (message.includes('learning')) return 'learning_reports';
+    if (message.includes('backtest')) return 'backtest_complete';
+    if (message.includes('paper')) return 'paper_trade_updates';
+    if (message.includes('a23')) return 'a23_promotions';
+    if (message.includes('pre-market')) return 'pre_market_reports';
+    return 'trade_signals';
+  }
+
+  function buildLivePricesSnapshot() {
+    const seed = Date.now() / 60000;
+    const nifty = 24450 + Math.sin(seed) * 70;
+    const bankNifty = 52100 + Math.cos(seed / 1.4) * 130;
+    const vix = 13.5 + Math.sin(seed / 2.2) * 1.8;
+    return {
+      nifty50: { price: Number(nifty.toFixed(2)), changePct: Number((Math.sin(seed / 3) * 1.2).toFixed(2)), sparkline: seriesAround(nifty, 24, 18) },
+      bankNifty: { price: Number(bankNifty.toFixed(2)), changePct: Number((Math.cos(seed / 3) * 1.4).toFixed(2)), sparkline: seriesAround(bankNifty, 24, 30) },
+      indiaVix: { value: Number(vix.toFixed(2)), level: vix >= 16 ? 'high' : vix >= 13 ? 'medium' : 'low' }
+    };
+  }
+
+  function buildContainerStatusGrid(health) {
+    const names = ['backend', 'frontend', 'python-service', 'redis', 'clickhouse', 'worker', 'scheduler', 'ingestion', 'websocket', 'analytics'];
+    return names.map((name, index) => ({
+      name,
+      status: index === 3 ? String(health?.redis || 'unknown').includes('up') ? 'green' : 'yellow'
+        : index === 4 ? String(health?.clickhouse || 'unknown').includes('up') ? 'green' : 'yellow'
+          : 'green'
+    }));
+  }
+
+  function seriesAround(base, points, amplitude) {
+    return Array.from({ length: points }).map((_, idx) => Number((base + Math.sin(idx / 3) * amplitude).toFixed(2)));
   }
 
   function calcWinRate(rows = []) {

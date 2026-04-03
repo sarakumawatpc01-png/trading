@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import DashboardHomeTab from './tabs/DashboardHomeTab';
 import ChartsTab from './tabs/ChartsTab';
 import OrchestrationTab from './tabs/OrchestrationTab';
@@ -9,6 +9,7 @@ import PaperTradingTab from './tabs/PaperTradingTab';
 import LearningTab from './tabs/LearningTab';
 import SettingsTab from './tabs/SettingsTab';
 import NotificationsTab from './tabs/NotificationsTab';
+import { apiGet } from '../lib/api';
 
 type MainTab = 'dashboard' | 'charts' | 'orchestration' | 'backtesting' | 'paper' | 'learning' | 'settings' | 'notifications';
 
@@ -25,6 +26,24 @@ const TABS: Array<{ key: MainTab; label: string }> = [
 
 export default function AppShell() {
   const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [headerKiteStatus, setHeaderKiteStatus] = useState('unknown');
+  const [headerSignals, setHeaderSignals] = useState(0);
+
+  useEffect(() => {
+    const load = async () => {
+      const [unread, overview] = await Promise.all([
+        apiGet<{ unreadCount: number }>('/notifications/unread-count').catch(() => ({ unreadCount: 0 })),
+        apiGet<{ system?: { kite?: { status?: string } }; pipeline?: { prefilterTriggers?: number } }>('/dashboard/live-overview').catch(() => null)
+      ]);
+      setUnreadCount(Number(unread.unreadCount || 0));
+      setHeaderKiteStatus(String(overview?.system?.kite?.status || 'unknown'));
+      setHeaderSignals(Number(overview?.pipeline?.prefilterTriggers || 0));
+    };
+    load();
+    const timer = setInterval(load, 7000);
+    return () => clearInterval(timer);
+  }, []);
 
   const body = useMemo(() => {
     if (activeTab === 'dashboard') return <DashboardHomeTab />;
@@ -48,7 +67,12 @@ export default function AppShell() {
               className={`w-full text-left px-3 py-2 rounded border transition ${activeTab === tab.key ? 'bg-oracle-gold text-black border-oracle-gold' : 'bg-oracle-tertiary border-oracle-border text-oracle-text-primary hover:border-oracle-gold'}`}
               onClick={() => setActiveTab(tab.key)}
             >
-              {tab.label}
+              <span className="inline-flex items-center gap-2">
+                <span>{tab.label}</span>
+                {tab.key === 'notifications' && unreadCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-oracle-red text-white">{unreadCount}</span>
+                )}
+              </span>
             </button>
           ))}
         </nav>
@@ -56,7 +80,7 @@ export default function AppShell() {
       <div className="flex-1 min-w-0">
         <header className="h-14 border-b border-oracle-border bg-oracle-secondary px-4 flex items-center justify-between">
           <div className="font-medium">{TABS.find((t) => t.key === activeTab)?.label}</div>
-          <div className="text-xs text-oracle-text-secondary">IST · ORACLE Trading Intelligence</div>
+          <div className="text-xs text-oracle-text-secondary">IST · Kite: {headerKiteStatus} · Active signals: {headerSignals} · ORACLE Trading Intelligence</div>
         </header>
         <main className="p-4 md:p-6">{body}</main>
       </div>
