@@ -48,6 +48,11 @@ type BacktestDetails = {
   };
 };
 
+const normalizeSymbol = (value: string) => {
+  const upper = String(value || '').toUpperCase();
+  return upper.endsWith('.NS') ? upper : `${upper}.NS`;
+};
+
 export default function BacktestingTab() {
   const [instrument, setInstrument] = useState('RELIANCE');
   const [dateFrom, setDateFrom] = useState('2024-01-01');
@@ -103,7 +108,7 @@ export default function BacktestingTab() {
       try {
         const parsed = JSON.parse(event.data);
         if (parsed?.type !== 'backtesting:progress') return;
-        if (String(parsed.payload?.symbol || '').toUpperCase() !== `${instrument}.NS`) return;
+        if (normalizeSymbol(String(parsed.payload?.symbol || '')) !== normalizeSymbol(instrument)) return;
         setProgress({
           progress: Number(parsed.payload?.progress || 0),
           message: String(parsed.payload?.message || '')

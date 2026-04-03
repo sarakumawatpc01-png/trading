@@ -61,7 +61,9 @@ export default function LearningTab() {
     setWeightHistory(history);
     setImplementationLog(impl);
     const byWeight = [...agents].sort((a, b) => b.weight - a.weight);
-    const topBottom = [...byWeight.slice(0, 5), ...byWeight.slice(-5)].map((row) => row.agent);
+    const topBottom = byWeight.length >= 10
+      ? [...byWeight.slice(0, 5), ...byWeight.slice(-5)].map((row) => row.agent)
+      : byWeight.map((row) => row.agent);
     setSelectedAgents(Array.from(new Set(topBottom)));
   };
 

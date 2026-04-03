@@ -7,6 +7,7 @@ const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } });
 const MAX_BASE_SYMBOL_LENGTH = 20;
 const NSE_DOT_SUFFIX_LENGTH = 3;
 const SYMBOL_QUERY_PATTERN = /analyze\s+([A-Za-z0-9_.\-]+)/i;
+const PROFIT_FACTOR_FALLBACK = 10;
 
 export function createApiRouter({ store, pipeline, logger, ingestion, agents, pythonClient, backtester }) {
   const router = express.Router();
@@ -593,7 +594,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
         winRate: closed.length ? Number((wins.length / closed.length).toFixed(4)) : 0,
         avgWin: wins.length ? Number((grossWin / wins.length).toFixed(3)) : 0,
         avgLoss: losses.length ? Number((Math.abs(losses.reduce((sum, trade) => sum + Number(trade.pnl || 0), 0)) / losses.length).toFixed(3)) : 0,
-        profitFactor: grossLoss > 0 ? Number((grossWin / grossLoss).toFixed(3)) : grossWin > 0 ? 10 : 1
+        profitFactor: grossLoss > 0 ? Number((grossWin / grossLoss).toFixed(3)) : grossWin > 0 ? PROFIT_FACTOR_FALLBACK : 1
       }
     });
   });
@@ -1034,9 +1035,9 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
    */
   function extractEntryPrice(setup) {
     const triggerPrice = Number(setup?.triggerPrice || 0);
-    if (Number.isFinite(triggerPrice)) return triggerPrice;
+    if (Number.isFinite(triggerPrice) && triggerPrice > 0) return triggerPrice;
     const firstZoneValue = Number(String(setup?.entryZone || '').split('-')[0] || 0);
-    return Number.isFinite(firstZoneValue) ? firstZoneValue : 0;
+    return Number.isFinite(firstZoneValue) && firstZoneValue > 0 ? firstZoneValue : 0;
   }
 
   router.use((err, _req, res, _next) => {

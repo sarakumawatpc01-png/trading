@@ -125,7 +125,7 @@ export default function PaperTradingTab() {
       <section className="oracle-card">
         <h3 className="font-medium mb-2">Paper Trade Journal</h3>
         <div className="text-xs mb-2">
-          Total {journal?.stats.totalTrades || 0} · Closed {journal?.stats.closedTrades || 0} · Win rate {Number(journal?.stats.winRate || 0) * 100}% · PF {Number(journal?.stats.profitFactor || 0).toFixed(2)}
+          Total {journal?.stats.totalTrades || 0} · Closed {journal?.stats.closedTrades || 0} · Win rate {(Number(journal?.stats.winRate || 0) * 100).toFixed(1)}% · PF {Number(journal?.stats.profitFactor || 0).toFixed(2)}
         </div>
         <div className="max-h-72 overflow-auto text-xs">
           {(journal?.rows || []).slice(0, 300).map((trade) => (
