@@ -1,5 +1,6 @@
 const DEFAULT_TICK_INTERVAL_MS = 1000;
 const WALL_SPOOF_WINDOW_MS = 8000;
+const SPOOF_WALL_MIN_QTY = 100000;
 
 export class TickStreamService {
   constructor({ store, broadcaster, logger }) {
@@ -57,7 +58,10 @@ export class TickStreamService {
     const imbalanceRatio = askTotal ? Number((bidTotal / askTotal).toFixed(3)) : 0;
     const delta = Math.round((bidTotal - askTotal) / 15);
     const cumulativeDelta = Number((previous.cumulativeDelta + delta).toFixed(2));
-    const divergence = Math.sign(lastPrice - previous.lastPrice) !== Math.sign(delta) && Math.abs(delta) > 10;
+    const priceMove = lastPrice - previous.lastPrice;
+    const hasMeaningfulPriceMove = Math.abs(priceMove) > 0.01;
+    const hasMeaningfulDeltaMove = Math.abs(delta) > 10;
+    const divergence = hasMeaningfulPriceMove && hasMeaningfulDeltaMove && (Math.sign(priceMove) !== Math.sign(delta));
     const wall = this.detectWall(bidDepth, askDepth);
     const spoofAlert = this.detectSpoof(symbol, wall, nowMs);
     const ticksPerSec = 1;
@@ -117,7 +121,7 @@ export class TickStreamService {
     }
     if (!previous) return null;
     const withinWindow = nowMs - previous.seenAt <= WALL_SPOOF_WINDOW_MS;
-    if (withinWindow && previous.quantity >= 100000) {
+    if (withinWindow && previous.quantity >= SPOOF_WALL_MIN_QTY) {
       this.lastWallBySymbol.delete(symbol);
       return {
         detected: true,

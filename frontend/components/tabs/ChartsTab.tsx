@@ -19,6 +19,8 @@ type OrderBook = {
   spoofAlert?: { detected: boolean; price: number; side: string; message: string } | null;
 };
 type DeltaRow = { ts: number; delta: number; cumulativeDelta: number; price: number; divergence: boolean };
+const MAX_DELTA_BAR_HEIGHT = 100;
+const MIN_DELTA_BAR_HEIGHT = 4;
 
 export default function ChartsTab() {
   const [symbol, setSymbol] = useState('NIFTY');
@@ -70,6 +72,12 @@ export default function ChartsTab() {
   const imbalance = useMemo(() => askTotal ? bidTotal / askTotal : 0, [bidTotal, askTotal]);
   const rolling20Delta = useMemo(() => deltaSeries.slice(0, 20).reduce((sum, row) => sum + Number(row.delta || 0), 0), [deltaSeries]);
   const hasDivergence = useMemo(() => deltaSeries.some((row) => row.divergence), [deltaSeries]);
+  const maxAbsDelta = useMemo(() => Math.max(1, ...deltaSeries.map((row) => Math.abs(Number(row.delta || 0)))), [deltaSeries]);
+
+  const depthBarWidth = (quantity: number, maxValue: number) => {
+    const safeMax = Math.max(1, maxValue);
+    return Math.max(5, (Number(quantity || 0) / safeMax) * 100);
+  };
 
   return (
     <div className="space-y-4">
@@ -98,7 +106,7 @@ export default function ChartsTab() {
                 <div className="text-oracle-green mb-1">Bids</div>
                 {(orderBook?.bid || []).slice(0, 5).map((row) => (
                   <div key={`b-${row.price}`} className="mb-1">
-                    <div className="h-2 bg-oracle-green/20 rounded" style={{ width: `${Math.max(5, (Number(row.quantity || 0) / maxBid) * 100)}%` }} />
+                    <div className="h-2 bg-oracle-green/20 rounded" style={{ width: `${depthBarWidth(Number(row.quantity || 0), maxBid)}%` }} />
                     <div>{row.price} · {row.quantity}</div>
                   </div>
                 ))}
@@ -107,7 +115,7 @@ export default function ChartsTab() {
                 <div className="text-oracle-red mb-1">Asks</div>
                 {(orderBook?.ask || []).slice(0, 5).map((row) => (
                   <div key={`a-${row.price}`} className="mb-1">
-                    <div className="h-2 bg-oracle-red/20 rounded" style={{ width: `${Math.max(5, (Number(row.quantity || 0) / maxAsk) * 100)}%` }} />
+                    <div className="h-2 bg-oracle-red/20 rounded" style={{ width: `${depthBarWidth(Number(row.quantity || 0), maxAsk)}%` }} />
                     <div>{row.price} · {row.quantity}</div>
                   </div>
                 ))}
@@ -144,7 +152,8 @@ export default function ChartsTab() {
             <h3 className="font-medium mb-2">Volume Delta (50 ticks)</h3>
             <div className="flex items-end gap-[2px] h-20">
               {deltaSeries.slice(0, 50).reverse().map((row, idx) => {
-                const height = Math.min(100, Math.max(4, Math.abs(row.delta)));
+                const normalized = (Math.abs(Number(row.delta || 0)) / maxAbsDelta) * MAX_DELTA_BAR_HEIGHT;
+                const height = Math.min(MAX_DELTA_BAR_HEIGHT, Math.max(MIN_DELTA_BAR_HEIGHT, normalized));
                 const color = row.delta >= 0 ? 'bg-oracle-green' : 'bg-oracle-red';
                 return <div key={`${row.ts}-${idx}`} title={`${row.delta}`} className={`${color} w-1`} style={{ height: `${height}%` }} />;
               })}

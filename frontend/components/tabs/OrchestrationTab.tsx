@@ -66,7 +66,7 @@ export default function OrchestrationTab() {
           createdAt: new Date(parsed.payload?.timestamp || Date.now()).toISOString()
         }, ...prev].slice(0, 300));
       } catch (error) {
-        console.error('Malformed pipeline activity message', { error, raw: event.data });
+        console.warn('Malformed pipeline activity message', { error, raw: event.data });
       }
     };
     return () => {

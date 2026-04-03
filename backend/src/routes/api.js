@@ -578,6 +578,9 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     const skippedPotentialPoints = skippedSetups.reduce((sum, setup) => {
       const entry = extractEntryPrice(setup);
       const tp1 = Number(setup.targets?.[0] || 0);
+      if (!Number.isFinite(entry) || !Number.isFinite(tp1) || entry <= 0 || tp1 <= 0) return sum;
+      const side = String(setup.direction || setup.side || '').toUpperCase();
+      if (side === 'SELL' || side === 'SHORT') return sum + Math.max(0, entry - tp1);
       return sum + Math.max(0, tp1 - entry);
     }, 0);
     res.json({
@@ -781,7 +784,7 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
    */
   function extractEntryPrice(setup) {
     const triggerPrice = Number(setup?.triggerPrice || 0);
-    if (triggerPrice > 0) return triggerPrice;
+    if (Number.isFinite(triggerPrice)) return triggerPrice;
     const firstZoneValue = Number(String(setup?.entryZone || '').split('-')[0] || 0);
     return Number.isFinite(firstZoneValue) ? firstZoneValue : 0;
   }

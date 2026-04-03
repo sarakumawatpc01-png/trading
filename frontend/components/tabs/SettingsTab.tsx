@@ -25,6 +25,29 @@ export default function SettingsTab() {
   const [stocks, setStocks] = useState<Array<{ id: string; symbol: string }>>([]);
   const [newStock, setNewStock] = useState('');
 
+  const renderPrefilterNumberInput = ({
+    label,
+    defaultValue,
+    payloadKey
+  }: {
+    label: string;
+    defaultValue: number;
+    payloadKey: 'momentumWeight' | 'volumeWeight';
+  }) => (
+    <label>{label}
+      <input
+        className="w-full mt-1 px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border"
+        type="number"
+        step="0.1"
+        defaultValue={defaultValue}
+        onBlur={async (event) => {
+          await apiPost('/prefilter/config', { [payloadKey]: Number(event.target.value) });
+          setStatus('Prefilter updated');
+        }}
+      />
+    </label>
+  );
+
   useEffect(() => {
     apiGet<KiteSettings>('/settings/kite').then((row) => setSettings({
       apiKey: row.apiKey || '',
@@ -138,7 +161,7 @@ export default function SettingsTab() {
         <section className="oracle-card">
           <h3 className="font-medium mb-2">Stock Universe</h3>
           <div className="flex gap-2 mb-3">
-            <input value={newStock} onChange={(event) => setNewStock(event.target.value.toUpperCase())} className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" placeholder="Add NSE symbol" />
+            <input aria-label="Stock symbol input" value={newStock} onChange={(event) => setNewStock(event.target.value.toUpperCase())} className="px-3 py-2 rounded bg-oracle-tertiary border border-oracle-border text-sm" placeholder="Add NSE symbol" />
             <button className="px-3 py-2 rounded bg-oracle-blue text-black text-xs" onClick={async () => {
               if (!newStock.trim()) return;
               await apiPost('/stocks', { symbol: newStock.trim() });
@@ -157,18 +180,16 @@ export default function SettingsTab() {
         <section className="oracle-card">
           <h3 className="font-medium mb-2">Pre-Filter</h3>
           <div className="grid md:grid-cols-2 gap-3 text-sm">
-            <label>Momentum Weight
-              <input className="w-full mt-1 px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border" type="number" step="0.1" defaultValue={Number((adminConfig.prefilterConfig as { momentumWeight?: number } | undefined)?.momentumWeight ?? 0.6)} onBlur={async (event) => {
-                await apiPost('/prefilter/config', { momentumWeight: Number(event.target.value) });
-                setStatus('Prefilter updated');
-              }} />
-            </label>
-            <label>Volume Weight
-              <input className="w-full mt-1 px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border" type="number" step="0.1" defaultValue={Number((adminConfig.prefilterConfig as { volumeWeight?: number } | undefined)?.volumeWeight ?? 0.4)} onBlur={async (event) => {
-                await apiPost('/prefilter/config', { volumeWeight: Number(event.target.value) });
-                setStatus('Prefilter updated');
-              }} />
-            </label>
+            {renderPrefilterNumberInput({
+              label: 'Momentum Weight',
+              defaultValue: Number((adminConfig.prefilterConfig as { momentumWeight?: number } | undefined)?.momentumWeight ?? 0.6),
+              payloadKey: 'momentumWeight'
+            })}
+            {renderPrefilterNumberInput({
+              label: 'Volume Weight',
+              defaultValue: Number((adminConfig.prefilterConfig as { volumeWeight?: number } | undefined)?.volumeWeight ?? 0.4),
+              payloadKey: 'volumeWeight'
+            })}
           </div>
         </section>
       )}
