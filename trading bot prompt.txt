@@ -1,0 +1,1158 @@
+This is a big one. Let me write you the full specification text first, then the complete Copilot prompt.
+
+---
+
+# PART 1 — COMPLETE FEATURE SPECIFICATION
+
+## What the Dashboard Is
+
+The ORACLE Dashboard is a full-stack web application running on your Hetzner server. It is the command center for the entire system — you see every agent, every signal, every backtest result, every chart, every API connection, and every learning cycle from one interface. It connects directly to your ClickHouse database, Redis cache, and all running Docker containers.
+
+**Tech stack:** React frontend + Node.js/Express backend + WebSocket for real-time data. Served via Traefik on your existing Hetzner Docker setup. Access via browser from anywhere.
+
+---
+
+## The 8 Main Tabs
+
+### Tab 1 — Dashboard (Home)
+
+**Live Overview Panel:**
+- Real-time Nifty 50 and BankNifty price with 1-day sparkline
+- India VIX gauge (green below 15, yellow 15-20, red above 20)
+- Today's signal count: TAKE / WAIT / SKIP counts
+- Pipeline status: Pre-Filter triggers today, agents running now, signals pending
+- Daily API cost tracker (running total vs Rs.280/day budget)
+- System health: all 10 Docker containers with green/yellow/red status dots
+- Active positions (paper trading) with live P&L
+
+**Today's Signals Feed (live):**
+- Card for each signal issued today showing instrument, direction (BUY/SELL with colour), score, Grand Synthesis pattern, all 6 output verdicts in mini grid, time issued
+- Click any signal card → full signal detail modal with complete Brain AI reasoning, A19 Devil's Advocate note, MiroFish crowd data if activated, all agent individual scores
+
+**Market Context Strip:**
+- SGX Nifty pre-market (before 9:15 AM)
+- FII/DII net flow (updated from NSE daily)
+- India VIX, PCR ratio, Max Pain level
+- Sector heatmap — 12 sectors, colour coded by % change
+
+---
+
+### Tab 2 — Charts
+
+**Chart panel — primary instrument selector:**
+- Default: Nifty 50, BankNifty
+- Add any instrument from the full Tier 1-4 universe
+- Multiple chart tabs open simultaneously (like browser tabs within the panel)
+
+**Chart features per instrument:**
+- Candlestick chart — timeframe selector: M1, M3, M5, M15, M30, H1, H4, Daily, Weekly
+- Drawn overlays: all A2 key levels (colour coded by type — orange = OB, blue = FVG, red = supply zone, green = demand zone, dotted = VWAP)
+- Volume profile on right side (optional toggle)
+- All ORACLE signals plotted on chart as arrows — green up arrow = BUY signal, red down arrow = SELL signal, grey = SKIP
+- Click any signal arrow → signal detail popup showing score, Brain AI reasoning, outcome if completed
+- Order book panel (right side): live bid/ask depth bars from Kite, updating in real time
+- Delta indicator below chart: cumulative volume delta as histogram — green bars above zero, red below
+- Absorption zones: highlighted in yellow when absorption detected by Pre-Filter OB layer
+- Wall levels: horizontal dotted lines where large bid/ask walls detected
+
+**Multi-instrument view:**
+- 2x2 grid mode showing 4 charts simultaneously
+- Each chart has its own timeframe selector
+- Sync crosshair option (move cursor on one chart, crosshair appears on all at same timestamp)
+
+**Tier 2/3/4 stock charts:**
+- Search box to add any NSE stock
+- When A23 promotes a stock, it auto-appears in a "Recently Promoted" section
+- Each promoted stock shows the reason for promotion (news event / block deal / volume spike)
+
+---
+
+### Tab 3 — Agents (Orchestration)
+
+**Hierarchy View (the main view):**
+A visual tree showing the complete ORACLE pipeline in real time. Not just a diagram — live, with data flowing through it.
+
+```
+Top level: DATA FEEDS
+  → Zerodha Kite WebSocket (ticks/sec counter, green dot if connected)
+  → NSE Exchange Feed (A23 watching — announcement counter)
+  → News API (A9 monitoring — last event timestamp)
+
+↓
+
+PRE-FILTER (Python)
+  → Status: ACTIVE / PAUSED / REGIME BLOCKED
+  → Ticks processed today: 47,234
+  → Triggers fired today: 18
+  → Current OB analysis: [shows live bid/ask imbalance ratio]
+
+↓ (when triggered)
+
+23 AGENTS (parallel execution tree)
+  → Layer 1: A13 (Gate) → A1 → A2 → A3
+  → Layer 2: A4 → A5 → A6 → A7
+  → Layer 3: A8 → A9 → A10
+  → Support: A11-A23
+  Each agent shows:
+    - Status: IDLE / RUNNING / COMPLETE / ERROR
+    - Last run time
+    - Last output verdict (bullish/bearish/neutral)
+    - Current Darwinian weight (colour coded)
+    - 7-day win rate
+
+↓
+
+BRAIN AI
+  → Status: IDLE / SYNTHESIZING
+  → Current operation: "Reading 23 reports..."
+  → Last output: "Signal #312 — SHORT 74%"
+  → Knowledge Brain query count today
+
+↓ (if potential TAKE)
+
+EXPERT COUNCIL
+  → Status: IDLE / DELIBERATING
+  → Current consensus: XX/100 masters agree
+  → Active MiroFish: Instance 1 / Instance 2 / Neither
+
+↓
+
+GRAND SYNTHESIS
+  → Pattern detected: "Universal Alignment"
+  → Final verdict: TAKE / WAIT / SKIP
+
+↓
+
+TELEGRAM ALERT
+  → Last alert sent: 11:47 AM
+  → Alert count today: 8
+```
+
+**Click any node in the hierarchy:**
+Opens a right-side panel showing:
+- Full input the agent received (the context package)
+- Full output the agent produced (the JSON response)
+- Processing time
+- Model used and cost for this run
+- Last 10 runs history with scores
+
+**Live Processing Animation:**
+When a signal is being processed in real time, the pipeline animates — nodes glow and show a progress bar as each agent runs. You can watch a live signal being processed from Pre-Filter to Telegram in real time.
+
+**Activity Log (below hierarchy):**
+Chronological log of every event:
+```
+11:47:14  Pre-Filter triggered — NIFTY 50 — Score 11 — bearish_engulfing
+11:47:15  23 agents fired simultaneously
+11:47:16  A13: TRENDING-BEARISH — PROCEED
+11:47:38  All agents complete — 23 seconds
+11:47:39  Brain AI synthesizing — Output A: SHORT 74%
+11:47:44  MiroFish Condition 3 activated — unusual options detected
+11:47:52  Expert Council deliberating — 91/100 agree SHORT
+11:47:58  Grand Synthesis: UNIVERSAL ALIGNMENT — TAKE
+11:47:59  Telegram alert fired — Signal #312
+```
+
+---
+
+### Tab 4 — Backtesting
+
+**Backtest Configuration Panel:**
+- Instrument selector (pre-populated with all priority Tier 1 stocks from Settings)
+- Date range: Start date / End date (default: 2 years back to today)
+- Walk-forward toggle: split training (2020-2023) vs test (2024)
+- Score threshold slider: 7 to 21 (default 11)
+- Run on: All signals / TAKE only / specific pattern types
+
+**Priority Backtest Queue:**
+- Stocks marked as "Priority" in Settings → Settings → Stock Universe automatically queue here
+- Continuous backtesting mode: when enabled, re-runs the priority list every Sunday night alongside the Darwinian learning cycle
+- Queue shows: instrument, last backtest date, current win rate, next scheduled run
+
+**Backtest Results Panel:**
+- Summary metrics: Win Rate, Profit Factor, Sharpe Ratio, Max Drawdown, Total Signals, Walk-Forward Efficiency
+- Signal-by-signal results table: date, instrument, direction, score, output pattern, result (WIN/LOSS), P&L in points
+- Equity curve chart (cumulative P&L over time as line chart)
+- Drawdown chart below equity curve
+- Agent accuracy table in this backtest: which agents had the highest accuracy on winning signals
+
+**Anti-bias validation report:**
+- Look-ahead bias check: PASSED / FAILED with evidence
+- Survivorship bias: shows if any delisted stocks were excluded
+- Monte Carlo summary: profitable in X% of 1,000 orderings
+
+---
+
+### Tab 5 — Paper Trading
+
+**Paper Trading Status:**
+- ON / OFF toggle at top (only available after Phase 6 checkpoint passed in Settings)
+- Current paper portfolio: all open positions with live P&L
+- Total paper P&L today / this week / since enabled
+
+**Active Signal Tracking:**
+Table of all signals currently being paper traded:
+- Signal ID, instrument, direction, entry zone, SL, TP1/2/3, time entered
+- Current price vs entry price
+- Live P&L in points and rupees (based on configured lot size)
+- Status: AT ENTRY / IN PROFIT / NEAR SL / TP1 HIT (SL moved to BE) / CLOSED
+
+**Paper Trade Journal:**
+Complete history of all paper trades with outcome. Filters by: date range, instrument, signal tier, result (WIN/LOSS).
+
+**Agreement Grading Panel:**
+For every TAKE signal in paper trading:
+- AGREE button (green) / DISAGREE button (red) / NEUTRAL button (grey)
+- Your running agreement rate shown prominently: "You agree with 74% of ORACLE's TAKE verdicts"
+- When you grade DISAGREE: text field opens to note your reasoning
+- Weekly summary: your agreement rate this week, pattern analysis of what you consistently disagree on
+
+**Paper vs Signal Truth Engine comparison:**
+Side-by-side showing:
+- Signals you paper traded → your win rate
+- Signals you skipped → what the Signal Truth Engine outcome was
+- Gap: "You left X Nifty points on the table this week by skipping these signals"
+
+---
+
+### Tab 6 — Learning (Self-Learning AI)
+
+**Agent Performance Dashboard:**
+Table showing all 23 agents with:
+- Current Darwinian weight (0.3 to 2.5)
+- 7-day win rate
+- 30-day win rate
+- Total signals analyzed
+- Trend arrow: weight going up ↑ or down ↓ or stable →
+- Last prompt evolution date
+
+**Weight History Chart:**
+Line chart showing weight history for each agent over time. Select multiple agents to compare. Shows when weights changed after Sunday learning cycles.
+
+**Learning AI Agent — The Meta-Agent:**
+This is a separate AI agent (DeepSeek V3.2) that runs weekly after the Sunday learning cycle and does one job: analyze ORACLE's own performance data and suggest concrete improvements.
+
+It reads:
+- All 23 agent weights and their trends
+- Win rates by signal tier, by instrument, by time of day, by market regime
+- MiroFish prediction accuracy vs actual crowd behavior
+- Expert Council consensus accuracy at each level
+- Pre-Filter trigger quality (what % of triggers became TAKE signals)
+
+It produces a **Suggestions Report** displayed in this tab:
+
+```
+ORACLE LEARNING REPORT — Week of March 17-21
+
+PERFORMANCE SUMMARY:
+  Total signals: 47  |  Win rate: 71.3%  |  API cost: $8.20
+
+TOP PERFORMING AGENTS THIS WEEK:
+  A7 Order Flow: 88% accuracy — weight increased to 1.62
+  A3 Liquidity: 84% accuracy — weight increased to 1.58
+  A1 Structure: 81% accuracy — stable at 1.74
+
+UNDERPERFORMING AGENTS:
+  A5 Pattern Recognition: 41% accuracy — weight dropped to 0.71
+  A6 Indicators: 48% accuracy — weight dropped to 0.83
+
+SUGGESTED IMPROVEMENTS (requires your approval):
+
+  Suggestion 1 — A5 Pattern Prompt Revision
+  Issue: A5 is detecting formations correctly but
+  scoring them too high when volume is average.
+  It is triggering on technically valid patterns
+  that lack institutional volume confirmation.
+  Fix: Update A5 prompt to require volume >1.5x
+  average before scoring a pattern above 0.7/1.0
+  Expected impact: Reduce A5 false positives by ~35%
+  Backtest evidence: Same conditions, revised rule
+  wins 67% vs current 41%.
+  [APPROVE THIS CHANGE] [REJECT] [DEFER]
+
+  Suggestion 2 — Pre-Filter Volume Threshold
+  Issue: Volume threshold at 1.8x passing too many
+  marginal setups in the 09:45-10:15 window.
+  First 30 minutes of prime session has elevated
+  noise — many triggers that agents then SKIP.
+  Fix: Raise Pre-Filter volume threshold to 2.2x
+  for first 30 minutes of prime session only.
+  Expected impact: 18% fewer triggers in that window,
+  signal quality improves.
+  [APPROVE] [REJECT] [DEFER]
+
+  Suggestion 3 — MiroFish Calibration
+  Issue: Condition 4 (price action extreme) predicted
+  crowd buying in 7 of 9 cases this week. Actual
+  outcome was crowd selling in 4 of those 7. 
+  Retail reaction to crashes may be more fear-driven
+  than model currently predicts.
+  Fix: Recalibrate fear threshold parameter in
+  MiroFish Condition 4 seeding template.
+  [APPROVE] [REJECT] [DEFER]
+```
+
+**Approval workflow:**
+- APPROVE: Change queued for implementation during next maintenance window (Sunday 11 PM)
+- REJECT: Change logged as rejected with your reason
+- DEFER: Resurface next week with new evidence
+- After approval: change is implemented, backtested on last 90 days, result shown to you. If improvement confirmed → permanent. If not → auto-reverted.
+
+**Implementation log:**
+Full history of all Learning AI suggestions, your decisions, and outcomes.
+
+---
+
+### Tab 7 — Settings
+
+Seven sub-sections within Settings:
+
+#### Settings → API Configuration
+
+**Zerodha Kite:**
+- API Key field (masked)
+- Access Token field (masked, with "Auto-refresh daily at 8:00 AM IST" toggle)
+- WebSocket mode selector: LTP / Quote / Full (must be Full for order book analysis)
+- Connection test button: fires test tick subscription, shows "Connected — receiving data for NIFTY 50"
+- Last successful connection: timestamp
+- Daily token refresh log: last 7 days with success/fail
+
+**AI Model APIs:**
+Table with one row per model:
+
+| Model | Provider | API Key | Status | Daily Cost | Test |
+|---|---|---|---|---|---|
+| Claude Sonnet 4.6 | Anthropic | ●●●●●●●● | ✅ Active | Rs.35 avg | [Test] |
+| DeepSeek V3.2 | DeepSeek | ●●●●●●●● | ✅ Active | Rs.6 avg | [Test] |
+| Gemini 2.5 Flash | Google | ●●●●●●●● | ✅ Active | Rs.9 avg | [Test] |
+| Gemini Flash-Lite | Google | (same key) | ✅ Active | Rs.18 avg | [Test] |
+| GPT-5 Mini | OpenAI | ●●●●●●●● | ✅ Active | Rs.2 avg | [Test] |
+| Mistral Nemo | Mistral | ●●●●●●●● | ✅ Active | Rs.0.5 avg | [Test] |
+| add Openrouter API option as well.|
+
+Each row: API key input (masked), show/hide toggle, save button, test button (sends a 5-token test request and confirms response).
+
+**Telegram:**
+- Bot Token field
+- Chat ID field
+- Test button: sends "ORACLE system test — all clear" message to your phone
+
+#### Settings → Agent Configuration
+
+One panel per agent (A1 through A23). Each panel contains:
+
+- **Agent name and description**
+- **AI Model selector** (dropdown — change which model powers this agent)
+- **System prompt editor** (full text editor with syntax highlighting, expandable to full screen)
+- **Current Darwinian weight** (read-only, shown with trend)
+- **Prompt version history** (dropdown of previous versions with restore button)
+- **Test agent** button: runs the agent on a stored historical signal and shows output
+- **Individual performance metrics**: win rate last 7 days, 30 days, all time
+- **Enabled/Disabled toggle** (disable an agent for testing without removing it)
+
+Example for A19 Devil's Advocate:
+```
+Agent: A19 — Devil's Advocate
+Model: Claude Sonnet 4.6 ▾
+Current Weight: 1.18 ↑
+
+System Prompt:
+┌─────────────────────────────────────────┐
+│ You are the Devil's Advocate agent in   │
+│ the ORACLE trading intelligence system. │
+│ You receive a complete signal analysis  │
+│ from the Brain AI including all 22      │
+│ other agent reports...                  │
+│                                         │
+│ [Full editable prompt text]             │
+└─────────────────────────────────────────┘
+[Edit Full Screen]  [Save]  [Restore Previous]
+
+Version History:
+  v3 — March 15 (current)
+  v2 — February 28 (restored from v1)
+  v1 — February 1 (original)
+
+Test: [Run on Signal #298]
+```
+
+#### Settings → Stock Universe
+
+**Tier 1 (Permanent — Always Active):**
+- List of 19 permanent instruments with toggle to show/hide on Charts tab
+- "Add to Tier 1" button for custom additions (up to 5 extras)
+
+**Priority Backtest Stocks:**
+- Checkbox list of all Tier 1 + Tier 2 instruments
+- Check any stock → it joins the continuous backtest queue
+- Shows: last backtest date, current backtest win rate, next scheduled run
+
+**A23 Scanner Settings:**
+- Promotion threshold: minimum trigger count before A23 promotes (default: 1 for news events, 2 for volume spikes)
+- Duration overrides: customize how long each trigger type keeps a stock promoted
+- Auto-promote to Chart: toggle whether A23 promotions auto-appear in Charts tab
+
+#### Settings → Pre-Filter
+
+All 8 Pre-Filter thresholds configurable:
+- Key level proximity: 0.10% to 0.25% slider (default 0.15%)
+- Volume anomaly minimum: 1.5x to 3.0x slider (default 1.8x)
+- Volume high threshold: 2.0x to 4.0x slider (default 2.5x)
+- Minimum composite score: 5 to 12 slider (default 7)
+- High priority score: 8 to 15 slider (default 10)
+- Cooldown same instrument: 5 min to 30 min slider (default 15 min)
+- Cooldown same direction: 10 min to 60 min slider (default 25 min)
+- Order book wall threshold: 20% to 50% slider (default 30%)
+
+All changes: save button + "Apply and Test" button that runs the new settings against last week's tick data and shows how many triggers would have fired.
+
+#### Settings → Session Windows
+
+Visual timeline from 9:00 AM to 3:30 PM:
+- Colour-coded blocks: PRIME (dark green), SECONDARY (light green), LATE (yellow), BLOCKED (red)
+- Drag edges to adjust windows
+- VIX threshold override: if VIX above X, downgrade all sessions by one level
+
+#### Settings → Backtesting & Paper Trading
+
+- Paper trading mode: OFF / SIMULATION ONLY / TELEGRAM ALERTS (no auto-execution)
+- Minimum backtest threshold gates (the 6 metrics): editable
+- Walk-forward split date: adjustable
+- Slippage assumption: 0 to 5 points slider (default 2)
+- Continuous backtest interval: Daily / Weekly / Off
+- Paper trade lot size for P&L calculation
+- Agreement rate threshold for GO LIVE decision: default 70%
+
+#### Settings → Learning System
+
+- Darwinian evolution: ON/OFF
+- Evolution frequency: every 10 signals / every 20 / weekly
+- Weight bounds: min 0.3 to 0.5, max 2.0 to 2.5
+- Learning AI suggestions: AUTO-IMPLEMENT approved / MANUAL APPROVAL REQUIRED (default: manual)
+- Monthly prompt evolution: ON/OFF + which agent to review first
+- Learning report delivery: Telegram / Dashboard only / Both
+
+---
+
+### Tab 8 — Notifications
+
+**Notification Centre:**
+All alerts in one feed, filterable by type:
+- Trade Signals (TAKE only, or all verdicts)
+- System Alerts (API disconnections, errors)
+- Learning Reports (Sunday weekly summaries)
+- A23 Promotions (stock promoted with reason)
+- Backtest completions
+- Paper trade outcomes (TP hit / SL hit)
+- Pre-Market reports
+
+**Notification Settings:**
+- Per-type toggle: send to Telegram / show in dashboard / both
+- Quiet hours: disable Telegram alerts between X PM and Y AM
+- Signal filter: only notify for EXCEPTIONAL tier, or HIGH+, or all
+- Sound alerts for new TAKE signals (browser notification)
+
+**Telegram Integration Panel:**
+- Live preview of what a signal card looks like
+- Test send button for each alert type
+- Alert history: last 50 Telegram messages sent with delivery confirmation
+
+---
+
+# PART 2 — THE COPILOT PROMPT
+
+Copy everything below this line and paste it directly into GitHub Copilot Chat, Cursor, or Claude Code:
+
+---
+
+```
+You are building the ORACLE Trading Intelligence System Dashboard — a complete full-stack web application that serves as the command center for an AI-powered trading system for Indian markets (NSE/BSE). The system runs on a Hetzner CX32 server with Docker, Traefik, ClickHouse, Redis, and PostgreSQL already deployed.
+
+TECHNOLOGY STACK:
+- Frontend: React 18 with TypeScript, TailwindCSS, Recharts for all charts/graphs
+- Backend: Node.js with Express, WebSocket (ws library) for real-time data
+- Database reads: ClickHouse (trading data) and Redis (cache/live state)
+- Containerization: Docker + Docker Compose, reverse proxied by Traefik
+- Real-time data: Zerodha Kite Connect WebSocket API (FULL mode for market depth)
+- Authentication: Simple JWT-based auth (single user — personal system)
+
+Your job is to AUDIT every feature listed below, IMPLEMENT any that are missing, FIX any that are broken, and VERIFY correct operation. After audit, produce a complete working implementation. For UI, produce a professional dark-theme dashboard — dark navy background (#0D1117), gold accent (#D4A017), clean typography (Inter font), smooth transitions. No bootstrap — Tailwind only.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: APPLICATION STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create/verify the following directory structure:
+oracle-dashboard/
+  frontend/
+    src/
+      components/
+        charts/           ← TradingChart, OrderBookPanel, DeltaChart
+        agents/           ← AgentCard, AgentTree, AgentDetail, ActivityLog
+        signals/          ← SignalCard, SignalModal, SignalFeed
+        backtesting/      ← BacktestConfig, BacktestResults, EquityCurve
+        papertrading/     ← PaperPortfolio, AgreementGrader, GapAnalysis
+        learning/         ← AgentPerformanceTable, SuggestionCard, WeightChart
+        settings/         ← ApiSettings, AgentSettings, PreFilterSettings, all others
+        notifications/    ← NotificationFeed, TelegramPreview
+        shared/           ← Navbar, Sidebar, StatusDot, MetricCard, LoadingSpinner
+      pages/
+        Dashboard.tsx     ← Tab 1 Home
+        Charts.tsx        ← Tab 2 Charts
+        Orchestration.tsx ← Tab 3 Agents/Pipeline
+        Backtesting.tsx   ← Tab 4 Backtesting
+        PaperTrading.tsx  ← Tab 5 Paper Trading
+        Learning.tsx      ← Tab 6 Self-Learning AI
+        Settings.tsx      ← Tab 7 Settings (with 7 sub-tabs)
+        Notifications.tsx ← Tab 8 Notifications
+      hooks/
+        useWebSocket.ts   ← WebSocket connection management
+        useKiteData.ts    ← Kite tick data subscription
+        useSignals.ts     ← Real-time signal feed
+        useAgentStatus.ts ← Agent status polling
+        useChartData.ts   ← OHLCV data from ClickHouse
+      store/
+        signalStore.ts    ← Zustand store for signals
+        agentStore.ts     ← Zustand store for agent states
+        settingsStore.ts  ← Zustand store for settings (persisted to localStorage)
+      types/
+        signal.types.ts
+        agent.types.ts
+        chart.types.ts
+        kite.types.ts
+  backend/
+    src/
+      routes/
+        api/
+          signals.ts      ← GET/POST signals from ClickHouse
+          agents.ts       ← Agent status, weights, prompts CRUD
+          charts.ts       ← OHLCV data endpoint
+          backtesting.ts  ← Run backtest, get results
+          papertrading.ts ← Paper trade management
+          learning.ts     ← Learning AI suggestions, approvals
+          settings.ts     ← Settings CRUD (stored in Redis)
+          notifications.ts
+      websocket/
+        tickHandler.ts    ← Receives from Kite, broadcasts to frontend
+        signalHandler.ts  ← New signals broadcast to frontend
+        agentHandler.ts   ← Agent status updates broadcast
+      services/
+        clickhouse.ts     ← ClickHouse client and query helpers
+        redis.ts          ← Redis client and helpers
+        kite.ts           ← Kite Connect WebSocket management
+        telegram.ts       ← Telegram bot for testing
+      middleware/
+        auth.ts
+        errorHandler.ts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: ZERODHA KITE CONNECT INTEGRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Implement and verify ALL of the following Kite Connect features:
+
+2.1 KITE WEBSOCKET CONNECTION (backend/src/services/kite.ts)
+- Connect using KiteTicker with API Key and Access Token from Settings
+- Subscribe to ALL Tier 1 instrument tokens in MODE_FULL (includes market depth — 5 bid/ask levels)
+- On every tick: write to ClickHouse ticks table AND broadcast to frontend WebSocket clients
+- The tick payload in FULL mode includes: instrument_token, last_price, volume_traded, depth (buy/sell arrays with price/quantity/orders)
+- Auto-reconnect logic: on disconnect, wait 5 seconds, attempt reconnect up to 10 times
+- Daily access token refresh: at 8:00 AM IST, call Kite OAuth flow to get new access_token, update Redis key "oracle:kite_access_token", restart WebSocket with new token
+- Connection status stored in Redis: "oracle:kite_status" = "connected" / "disconnected" / "reconnecting"
+- Verify: after connect, check that all 19 Tier 1 tokens appear in the subscription list
+
+2.2 KITE API SETTINGS PAGE (Settings → API Configuration)
+Implement a React component KiteSettings.tsx that shows:
+- API Key input field (type="password", show/hide toggle)
+- Access Token input field (type="password", show/hide toggle)
+- WebSocket Mode radio: LTP / Quote / Full — must be FULL for order book data
+- Auto-refresh toggle (calls daily OAuth at 8 AM IST)
+- Test Connection button: calls backend POST /api/settings/kite/test which creates a KiteTicker, subscribes to NIFTY 50 token 256265, waits for one tick, returns success + last price
+- Connection status indicator: green dot "Connected — receiving X ticks/sec" or red dot "Disconnected"
+- Last successful connection timestamp
+- Daily refresh log: table of last 7 days with success/fail and timestamp
+- Save button: POST to /api/settings saves to Redis, restarts KiteTicker service
+
+2.3 LIVE ORDER BOOK PANEL (Charts tab, right panel)
+Implement OrderBookPanel.tsx showing:
+- Top 5 bids as green horizontal bars (width proportional to quantity)
+- Top 5 asks as red horizontal bars
+- Current spread shown between bid/ask
+- Total bid quantity vs total ask quantity
+- Imbalance ratio: "Buy pressure 2.3x" shown in green or "Sell pressure 1.8x" shown in red
+- Largest wall highlighted with gold border and "WALL" label
+- Updates every tick via WebSocket subscription
+- Spoof alert: if a large wall (>100,000 lots) disappears within 8 seconds, flash red "SPOOF DETECTED at [price]"
+
+2.4 VOLUME DELTA PANEL (Charts tab, below main chart)
+Implement DeltaChart.tsx showing:
+- Histogram of cumulative volume delta for last 50 ticks
+- Green bars = positive delta (net buying), Red bars = negative delta (net selling)
+- Running 20-tick cumulative total displayed numerically
+- Delta divergence alert: if price making new high but delta falling (or vice versa), show orange "DIVERGENCE DETECTED" banner
+- Data source: computed in tickHandler.ts from Kite FULL mode ticks
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: CHARTS TAB — COMPLETE IMPLEMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Implement Charts.tsx with the following features:
+
+3.1 MAIN CANDLESTICK CHART (TradingChart.tsx)
+- Use Recharts ComposedChart with custom candlestick renderer
+- Candlestick data from GET /api/charts/ohlcv?token={token}&timeframe={tf}&count=200
+- Backend queries ClickHouse: SELECT period, open, high, low, close, volume FROM candles WHERE instrument_token = {token} AND timeframe = {tf} ORDER BY period DESC LIMIT 200
+- Timeframe selector: M1 | M3 | M5 | M15 | M30 | H1 | H4 | Daily | Weekly (tabs)
+- Auto-updates: subscribe to WebSocket channel "chart:{token}:{timeframe}" for new candle closes
+- Volume bars at bottom of chart (separate pane, 20% height)
+
+3.2 KEY LEVEL OVERLAYS
+- Fetch from GET /api/charts/levels?token={token}
+- Backend reads Redis key "oracle:levels:{token}" (populated by A2 agent every 30 mins)
+- Draw horizontal lines with labels:
+  - Orange dashed = Order Block (OB)
+  - Blue dashed = Fair Value Gap (FVG)
+  - Red solid = Supply Zone
+  - Green solid = Demand Zone
+  - Purple dotted = VWAP
+  - Gold dotted = Max Pain (from A16, NSE options)
+- Toggle each type on/off with checkbox panel above chart
+
+3.3 SIGNAL MARKERS ON CHART
+- Fetch from GET /api/charts/signals?token={token}&from={date}&to={date}
+- Plot on chart as:
+  - Green upward triangle = BUY/LONG signal
+  - Red downward triangle = SELL/SHORT signal
+  - Grey circle = SKIP signal
+- Size of triangle proportional to signal score (EXCEPTIONAL = large, HIGH = medium, MODERATE = small)
+- Click any marker → SignalModal showing full signal details:
+  - All 6 output verdicts (A-F) in a grid
+  - Brain AI reasoning text
+  - A19 Devil's Advocate note
+  - MiroFish crowd data if activated
+  - Outcome if signal is closed: WIN/LOSS, P&L in points
+  - Signal card exactly as sent to Telegram
+
+3.4 INSTRUMENT TABS
+- Multi-tab bar at top: default tabs = Nifty 50, BankNifty
+- Plus (+) button to add any instrument: search box with autocomplete from NSE instrument list
+- Each tab shows instrument name, current price, % change for the day
+- Close (×) button on each tab except last one
+- Tabs persisted to localStorage so they survive page refresh
+
+3.5 2x2 GRID MODE
+- Toggle button "Grid View" at top right
+- Shows 4 charts simultaneously in 2x2 grid
+- Each chart has its own timeframe selector
+- Sync crosshair toggle: when enabled, hover on one chart shows vertical line on all at same timestamp
+
+3.6 A23 PROMOTED STOCKS SECTION
+- Below main chart area: collapsible section "Recently Promoted by A23"
+- Cards for each stock A23 has promoted in last 48 hours
+- Each card shows: ticker, reason for promotion, time promoted, current price, % move since promotion
+- Click card → opens that stock in a new chart tab
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: ORCHESTRATION TAB — PIPELINE HIERARCHY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Implement Orchestration.tsx with:
+
+4.1 PIPELINE HIERARCHY TREE (left panel, 60% width)
+
+Render a vertical pipeline tree using custom React components. Each node is a PipelineNode component:
+
+PipelineNode props:
+- name: string
+- status: "idle" | "running" | "complete" | "error" | "blocked"
+- statusColor: green (complete) | blue (running) | grey (idle) | red (error/blocked)
+- metrics: key-value pairs to display in node
+- children: sub-nodes
+- onClick: opens detail panel
+
+Node structure:
+```
+DATA FEEDS GROUP
+├── Kite WebSocket [ticks/sec counter] [green dot if connected]
+├── NSE Exchange Feed [announcements today count]
+└── News API [last event timestamp]
+     ↓
+PRE-FILTER [status badge] [triggers today] [ticks processed]
+     ↓ (animated line when processing)
+23 AGENTS GROUP (parallel)
+├── LAYER 1
+│   ├── A13 Regime Gate [weight badge] [last verdict]
+│   ├── A1 Market Structure [weight] [last verdict]
+│   ├── A2 Key Level [weight] [last verdict]
+│   └── A3 Liquidity [weight] [last verdict]
+├── LAYER 2
+│   ├── A4 MTF Confluence [weight] [last verdict]
+│   ├── A5 Pattern Recognition [weight] [last verdict]
+│   ├── A6 Indicators [weight] [last verdict]
+│   └── A7 Order Flow [weight] [last verdict]
+├── LAYER 3
+│   ├── A8 Risk/Reward [weight] [last verdict]
+│   ├── A9 News [weight] [last verdict]
+│   └── A10 Session [weight] [last verdict]
+└── SUPPORT LAYER
+    ├── A11-A16 (condensed row)
+    ├── A17 MiroFish [activation status]
+    ├── A18-A23 (condensed row)
+     ↓
+BRAIN AI [status] [knowledge brain queries today] [last output]
+     ↓ (if potential TAKE)
+EXPERT COUNCIL [status] [consensus %] [masters deliberating]
+     ↓
+GRAND SYNTHESIS [pattern type] [verdict]
+     ↓
+TELEGRAM [last alert time] [alerts today]
+```
+
+4.2 ANIMATION DURING LIVE PROCESSING
+When a new signal enters the pipeline:
+- A flowing dot animation travels down the pipeline tree from Pre-Filter
+- Each node glows briefly as it activates
+- Progress percentage shown in each active node
+- Whole animation takes 30-60 seconds matching real pipeline time
+
+4.3 ACTIVITY LOG (right panel bottom, 40% width)
+Real-time scrolling log of all pipeline events. Each entry:
+- Timestamp (HH:MM:SS)
+- Node name that produced the event
+- Event description
+- Color coded: blue = info, green = success, orange = warning, red = error
+- Auto-scroll to bottom when new events arrive (with "Pause auto-scroll" toggle)
+- Filter by: All / Pre-Filter / Agents / Brain AI / Expert Council / Errors
+
+Data source: backend WebSocket channel "pipeline:activity" — every agent completion broadcasts an event
+
+4.4 AGENT DETAIL PANEL (right panel top, click any node)
+When you click any pipeline node:
+- Slides in from right, replacing activity log temporarily (or side by side on large screens)
+- Shows three tabs:
+
+Tab A — Last Run:
+- Input: collapsible JSON viewer showing the context package this agent received
+- Output: collapsible JSON viewer showing the agent's JSON response
+- Processing time: "23ms"
+- Model used + cost: "DeepSeek V3.2 — $0.0023"
+
+Tab B — Performance:
+- Win rate chart: line chart over last 30 days
+- Current Darwinian weight with trend
+- Best signal types (what instrument/regime this agent performs best on)
+- Worst signal types
+
+Tab C — Configuration:
+- Link to this agent's settings in Settings → Agent Configuration
+- Current prompt (read-only in orchestration, edit in Settings)
+- Quick test: run this agent on a stored signal and show output instantly
+
+4.5 BRAIN AI REVIEW PANEL
+Brain AI gets its own expanded node at bottom of hierarchy with a dedicated sub-panel:
+
+When Brain AI completes analysis of any signal, show in Orchestration:
+- The complete Brain AI synthesis text (not just verdict — the full reasoning paragraph)
+- How it weighted each agent's report
+- Which agents it agreed with vs questioned
+- How A19 Devil's Advocate influenced the final verdict (show A19 concern and Brain AI response)
+- Final Output A verdict text
+- Comparison: did Brain AI verdict match Grand Synthesis? If not, why did Grand Synthesis override?
+
+This Brain AI review panel updates live as signals process. Previous reviews scrollable below current.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5: BACKTESTING TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.1 BACKTEST CONFIGURATION
+Implement BacktestConfig.tsx:
+- Instrument multi-select: checkboxes for all Tier 1 instruments + search to add any NSE stock
+- Date range pickers: start date and end date
+- Walk-forward toggle: when ON, shows split date selector (default: 2020-2023 train, 2024 test)
+- Score threshold slider: 7 to 21, step 1, default 11
+- Signal filter: ALL / TAKE only / specific Grand Synthesis patterns (multi-select checkboxes)
+- Run Backtest button: POST /api/backtesting/run with config payload
+- While running: progress bar showing "Processing candle 14,523 of 127,440 — 11.4%"
+
+5.2 PRIORITY BACKTEST QUEUE
+- Stocks marked as Priority in Settings appear here with status:
+  - "Queued — next run Sunday 11 PM"
+  - "Running — 34% complete"
+  - "Complete — 72.3% win rate — March 16"
+- Continuous backtest mode toggle: when ON, re-runs priority list every Sunday after Darwinian cycle
+- Manual "Run Now" button per stock
+
+5.3 BACKTEST RESULTS
+Implement BacktestResults.tsx:
+
+Summary metrics panel (6 metric cards):
+- Win Rate: large number, green if ≥65%, red if <65%
+- Profit Factor: green if ≥1.5
+- Sharpe Ratio: green if ≥1.5
+- Max Drawdown: green if <20%, red if ≥20%
+- Walk-Forward Efficiency: green if ≥80%
+- Monte Carlo: "Profitable in X% of 1,000 simulations"
+
+Charts section:
+- Equity curve: Recharts LineChart, cumulative P&L in points over time, with drawdown shaded in red below zero
+- Monthly returns heatmap: calendar grid with cells coloured green/red by monthly return %
+- Signal distribution: pie chart showing EXCEPTIONAL / HIGH / MODERATE signal counts and win rates
+
+Signal detail table:
+- Columns: Date, Instrument, Direction, Score, Pattern, TP1 Hit, TP2 Hit, SL Hit, P&L (pts)
+- Sortable, filterable by result
+- Click any row → shows the full reconstructed signal card for that backtest signal
+
+Bias validation panel:
+- Look-ahead bias: PASSED ✅ (shows timestamp of automated test)
+- Survivorship bias: PASSED ✅ (shows universe count including delisted)
+- Monte Carlo: detailed distribution chart of 1,000 run outcomes
+
+Agent accuracy in backtest:
+- Table: which agents appeared most in winning signals vs losing signals
+- Identifies which agents were predictive in THIS backtest run
+
+5.4 BACKEND: /api/backtesting/
+- GET /api/backtesting/results?instrument={}&date_from={}&date_to={} → query ClickHouse signals table
+- POST /api/backtesting/run → triggers Python backtesting service via Docker exec, streams progress updates via WebSocket
+- GET /api/backtesting/queue → returns priority backtest queue status from Redis
+- POST /api/backtesting/queue/add → adds instrument to continuous backtest queue
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6: PAPER TRADING TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.1 PAPER PORTFOLIO
+- Show all currently active paper trades in a table:
+  Signal ID | Instrument | Direction | Entry | Current Price | SL | TP1 | TP2 | TP3 | P&L (pts) | P&L (Rs) | Status
+- P&L updates live from Kite tick data
+- Status badges: "AT ENTRY", "IN PROFIT +23pts", "NEAR SL ⚠️", "TP1 HIT — SL at BE", "CLOSED WIN", "CLOSED LOSS"
+- When TP1 hit: row turns green, "Move SL to BE" action button appears with confirmation
+
+6.2 AGREEMENT GRADER
+For every TAKE signal that enters paper trading, show a grading card:
+- Signal summary (instrument, direction, score, Grand Synthesis pattern)
+- Three buttons: [AGREE ✓] [DISAGREE ✗] [NEUTRAL]
+- When DISAGREE clicked: text area opens "Why do you disagree? (optional)"
+- Running metrics at top of panel:
+  - "You agree with 74% of ORACLE's TAKE verdicts this week"
+  - "Goal: 70% to qualify for live capital"
+  - Progress bar towards 70%
+
+6.3 GAP ANALYSIS PANEL
+- Signals you paper traded → your paper win rate
+- Signals you skipped (all TAKE signals that never got graded AGREE) → Signal Truth Engine outcome
+- Gap calculation: "You left 387 Nifty points untouched this week by not taking these 6 signals"
+- Pattern analysis: "You consistently skip SWING signals — their win rate was 75% this week"
+
+6.4 PAPER TRADE JOURNAL
+Full history table with filters:
+- Date range, instrument, signal tier, result
+- Export to CSV button
+- Summary stats: total paper trades, win rate, avg win in points, avg loss in points, profit factor
+
+6.5 BACKEND: /api/papertrading/
+- POST /api/papertrading/signal — creates paper trade record when new TAKE signal fires
+- PATCH /api/papertrading/{id}/grade — saves AGREE/DISAGREE/NEUTRAL
+- GET /api/papertrading/active — all open paper trades
+- GET /api/papertrading/history — closed paper trades with filters
+- GET /api/papertrading/gap-analysis — compare taken vs skipped signal outcomes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7: LEARNING TAB — SELF-LEARNING AI AGENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7.1 AGENT PERFORMANCE DASHBOARD
+Table with all 23 agents (A1 through A23):
+Columns: Agent | Name | Model | Weight | 7d Win Rate | 30d Win Rate | Trend | Last Evolution | Status
+- Weight shown as coloured badge: green >1.5, blue 1.0-1.5, orange 0.5-1.0, red <0.5
+- Trend shown as ↑ ↓ → with colour
+- Click any row → opens agent detail with weight history chart
+
+7.2 WEIGHT HISTORY CHART
+- Recharts LineChart, multi-series (one line per agent)
+- Dropdown to select which agents to show (default: top 5 and bottom 5 by current weight)
+- X-axis: dates of Sunday learning cycles
+- Y-axis: weight value 0.3 to 2.5
+- Dotted vertical lines on dates when prompt evolutions occurred
+- Tooltip showing exact weight and notes for any point
+
+7.3 LEARNING AI SUGGESTIONS PANEL
+Display the output of the weekly Learning AI meta-agent (powered by DeepSeek V3.2).
+
+Each suggestion displayed as a SuggestionCard component:
+- Title of the suggestion
+- Issue description (what problem was identified)
+- Evidence (data supporting the suggestion — win rates, accuracy numbers)
+- Proposed fix (what specifically will change)
+- Expected impact (quantified if possible)
+- Backtest evidence (how this change performs on last 90 days data)
+- Three action buttons: [APPROVE ✓] [REJECT ✗] [DEFER ⏳]
+- When APPROVE clicked: confirmation modal showing exactly what will change, "Confirm Implementation" button
+- When confirmed: status changes to "Queued for Sunday 11 PM implementation"
+
+7.4 IMPLEMENTATION LOG
+Table of all past suggestions:
+- Date suggested | Summary | Your decision | Implementation date | Outcome (improved/no change/reverted)
+- Click any row → full suggestion detail and outcome data
+- Shows git commit hash for approved prompt changes
+
+7.5 BACKEND: LEARNING AI AGENT
+POST /api/learning/generate-suggestions:
+1. Query ClickHouse for last 7 days signals with outcomes
+2. Calculate per-agent accuracy, weight trends, MiroFish accuracy, Council accuracy
+3. Call DeepSeek V3.2 API with full performance data as context
+4. System prompt for Learning AI:
+   "You are the ORACLE Learning AI meta-agent. You receive performance data for all 23 agents in the ORACLE trading system and produce concrete, evidence-backed improvement suggestions. Each suggestion must include: the specific problem identified from the data, the exact change proposed (be specific — what text changes in which agent prompt, or what threshold value changes), quantified expected improvement, and any backtest evidence. Respond in JSON format as an array of SuggestionObjects. Never suggest vague improvements — every suggestion must be a specific, implementable change."
+5. Parse JSON response and store in PostgreSQL learning_suggestions table
+6. Return to frontend for display
+
+POST /api/learning/approve/{suggestionId}:
+1. Mark suggestion as approved in DB
+2. Queue implementation for Sunday 11 PM learning cycle
+3. On Sunday: implement the change (update agent prompt or Pre-Filter threshold)
+4. Run 90-day backtest with new setting
+5. If win rate improves by >2%: commit, mark as IMPROVED
+6. If not: revert, mark as REVERTED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8: SETTINGS TAB — COMPLETE IMPLEMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Settings.tsx with 7 sub-tabs. Implement all of the following:
+
+8.1 API CONFIGURATION SUB-TAB
+Zerodha Kite section:
+- Input fields: API Key (password type), Access Token (password type) — both with show/hide eye icon
+- WebSocket Mode radio group: LTP / Quote / Full (must show warning if not Full — "Order book analysis requires FULL mode")
+- Auto-refresh toggle with time picker for refresh time (default 08:00 IST)
+- Test button: POST /api/settings/kite/test — shows "Testing..." spinner then "✅ Connected — NIFTY 50 at 24,458.50" or "❌ Connection failed: [error message]"
+- Save button: POST /api/settings/kite/save
+
+AI Models section:
+For each of these models: Claude Sonnet 4.6, DeepSeek V3.2, Gemini 2.5 Flash, Gemini 2.0 Flash-Lite, GPT-5 Mini, Mistral Nemo
+- API Key input (password type) with show/hide
+- Status indicator: green "Active" or red "No key" or yellow "Error"
+- Average daily cost display
+- Test button: sends a minimal test request ("Reply with just the word OK") and shows response time
+- Save button
+
+Telegram section:
+- Bot Token input
+- Chat ID input
+- Test button: sends test message
+- Alert preferences (which alert types to send)
+
+8.2 AGENT CONFIGURATION SUB-TAB
+23 agent panels in an accordion layout (one expandable section per agent).
+Each panel:
+- Header: agent name, model badge, current weight, enable/disable toggle
+- When expanded:
+  - AI Model selector dropdown (can change which model powers this agent)
+  - System Prompt full-text editor (CodeMirror or Monaco editor with word wrap)
+  - Version history dropdown: "v3 — March 15 (current) ▾" with restore button
+  - Test button: run this agent on 3 most recent signals from ClickHouse
+  - Test output modal: shows input context (collapsible JSON) and agent response
+  - Performance metrics: 7d win rate, 30d win rate, current weight, total signals
+  - Save Prompt button: saves to PostgreSQL agent_prompts table with version increment
+  - Reset to Default button: restores the original system prompt from constants file
+
+Backend: /api/agents/ 
+- GET /api/agents/list → all 23 agents with weights, models, last run stats
+- GET /api/agents/{id}/prompt → current and historical prompts
+- PUT /api/agents/{id}/prompt → save new prompt version
+- POST /api/agents/{id}/test → run agent on provided signal context, return output
+- GET /api/agents/{id}/performance → win rate time series for weight chart
+
+8.3 STOCK UNIVERSE SUB-TAB
+Tier 1 panel: list with toggle and "Add custom" button
+Priority Backtest Stocks: checkbox list, checked stocks enter continuous backtest queue
+A23 Scanner settings: thresholds and auto-promote toggles
+
+8.4 PRE-FILTER SUB-TAB
+Slider controls for all 8 thresholds. On change, show live preview:
+"With these settings, last week would have produced 19 triggers (vs 22 current)"
+Save + Apply button: saves to Redis "oracle:prefilter_config"
+
+8.5 SESSION WINDOWS SUB-TAB
+Visual 9AM-3:30PM timeline with draggable coloured blocks. Save to Redis.
+
+8.6 BACKTESTING & PAPER TRADING SUB-TAB
+Paper trading mode selector, threshold gates, slippage setting, lot size.
+
+8.7 LEARNING SYSTEM SUB-TAB
+Darwinian evolution toggles, frequency, weight bounds, Learning AI settings.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9: NOTIFICATIONS TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9.1 NOTIFICATION FEED
+Real-time feed (WebSocket) with type filter checkboxes:
+- Trade Signals | System Alerts | Learning Reports | A23 Promotions | Backtest Complete | Paper Trade Updates | Pre-Market Reports
+
+Each notification card:
+- Type icon + colour coding
+- Timestamp
+- Summary title
+- Expandable body with full content
+- "Mark read" and "Dismiss" buttons
+- Unread count badge on Notifications tab in sidebar
+
+9.2 TELEGRAM INTEGRATION
+- Preview panel showing exact formatted version of signal card as it appears on phone
+- Test send button per alert type
+- Alert history: last 50 sent with delivery timestamps
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 10: DASHBOARD HOME TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+10.1 LIVE OVERVIEW PANEL (top row, 3 columns)
+Left: Live Prices
+- Nifty 50: current price, change %, sparkline (24h)
+- BankNifty: same
+- India VIX: numeric with gauge visual, colour coded
+
+Center: Today's Pipeline Activity
+- Ticks processed: live counter
+- Pre-Filter triggers: count
+- Agents called: total agent runs today
+- Signals: TAKE / WAIT / SKIP counts as donut chart
+- API cost today: Rs amount vs daily budget
+
+Right: System Health
+- Docker container status grid: 10 containers, each showing name + green/yellow/red dot
+- Server stats: CPU %, RAM %
+- Kite connection: green "Connected 47 ticks/sec" or red "Disconnected"
+- Last signal sent: timestamp
+
+10.2 SIGNAL FEED (main content area, left 65%)
+Live scrolling feed of today's signals.
+Each signal as a SignalCard component:
+- Instrument + direction arrow (↑ green or ↓ red) + time
+- Score badge (EXCEPTIONAL / HIGH / MODERATE) with colour
+- Six output verdict grid (2 rows × 3 cols): A B C / D E F each showing SHORT/LONG % or X/100
+- Grand Synthesis pattern badge
+- Click → opens SignalModal with all details
+
+10.3 MARKET CONTEXT (right panel, 35%)
+- FII net buying/selling: bar with today's figure + 5-day trend
+- PCR ratio gauge
+- Max Pain level for current expiry
+- A21 Sector rotation: mini heatmap of 12 sectors
+- Active paper trades mini summary
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 11: UI SPECIFICATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Color palette (CSS variables):
+--bg-primary: #0D1117        ← dark navy main background
+--bg-secondary: #161B22      ← slightly lighter for cards
+--bg-tertiary: #21262D       ← card hover, input backgrounds
+--border: #30363D            ← all borders
+--gold: #D4A017              ← primary accent, active states
+--gold-light: #F0C040        ← gold hover
+--text-primary: #E6EDF3      ← main text
+--text-secondary: #8B949E    ← labels, secondary text
+--green: #3FB950             ← bullish, success, BUY
+--red: #F85149               ← bearish, error, SELL
+--blue: #58A6FF              ← info, links, neutral
+--orange: #F0883E            ← warning, MiroFish
+--purple: #BC8CFF            ← Expert Council, learning
+
+Typography: Inter font from Google Fonts
+- Headings: 600 weight
+- Body: 400 weight
+- Monospace (data values, prices): JetBrains Mono
+
+Layout:
+- Fixed left sidebar: 220px wide, collapsible to 60px (icon only mode)
+- Sidebar items: Dashboard, Charts, Orchestration, Backtesting, Paper Trading, Learning, Settings, Notifications
+- Notification bell icon in header with unread count badge
+- Header bar: system status (Kite connection, active signals count, current time IST)
+- Main content: full remaining width with 24px padding
+- All cards: --bg-secondary background, --border border, 8px border radius, subtle shadow
+
+Responsive:
+- Desktop first (this is primarily accessed from desktop/laptop)
+- Tablet: sidebar collapses to icon mode automatically
+- Mobile: not priority but should not break
+
+Animations:
+- Pipeline animation during signal processing: CSS keyframe animation on pipeline nodes
+- Signal card entry: slide in from right
+- Chart data load: fade in
+- All transitions: 150ms ease
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 12: AUDIT REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+After implementing all features, perform this complete audit:
+
+12.1 For each feature in Sections 1-10:
+□ Feature exists in codebase
+□ Feature is wired to correct data source
+□ Feature handles loading state
+□ Feature handles error state
+□ Feature handles empty/no-data state
+□ Feature updates in real-time where required
+□ Feature is accessible from correct navigation location
+
+12.2 Kite API specific checks:
+□ KiteTicker connects successfully with valid credentials
+□ FULL mode subscription confirmed (depth data present in tick)
+□ All 19 Tier 1 instrument tokens subscribed
+□ Tick data writing to ClickHouse ticks table
+□ Frontend WebSocket receiving tick updates
+□ Order book panel showing live bid/ask depth
+□ Delta calculation producing correct signed values
+□ Daily token refresh scheduled correctly
+
+12.3 Agent system checks:
+□ All 23 agents defined in agents config with prompts and model assignments
+□ Agent weights reading correctly from ClickHouse agent_weights table
+□ Darwinian weight update logic implemented correctly
+□ Learning AI generates suggestions in correct JSON format
+□ Approval workflow implemented: APPROVE → queue → implement Sunday → backtest → confirm/revert
+
+12.4 Backtesting checks:
+□ Walk-forward split enforced (2024 test data never queried during training phase)
+□ Look-ahead bias prevention: timestamp lock verified
+□ Monte Carlo simulation implemented (1,000 runs)
+□ Priority queue re-runs every Sunday
+□ Equity curve chart renders correctly from backtest results
+
+12.5 Paper trading checks:
+□ Every TAKE signal automatically creates a paper trade record
+□ P&L updates live from Kite tick data
+□ Agreement grading saves to database
+□ Gap analysis calculation is correct
+□ 70% agreement rate threshold tracked accurately
+
+12.6 UI checks:
+□ All 8 tabs accessible and rendering without console errors
+□ Charts load OHLCV data within 2 seconds
+□ Pipeline hierarchy tree renders all 23 agents correctly
+□ Live signal feed updates without page refresh
+□ Dark theme applied consistently throughout
+□ All API key inputs masked by default
+□ Mobile layout does not break (sidebar collapses)
+
+Produce a written audit report at the end listing: PASS ✅ / FAIL ❌ / NOT IMPLEMENTED 🔲 for every check. For every FAIL or NOT IMPLEMENTED: immediately implement the fix before completing.
+
+Do not produce a partial implementation. The end state must be a fully functional dashboard with all features working.
+```
+
+---
+
+That is your complete Copilot/Cursor/Claude Code prompt. Paste the entire block from the triple backtick section directly into your AI coding tool session. A few practical notes:
+
+**On running this with Claude Code specifically:** Claude Code will handle this better if you break it into phases. Run sections 1-2 first (structure + Kite), verify Kite data is flowing, then sections 3-4 (charts + orchestration), then sections 5-7 (backtesting/paper trading/learning), then sections 8-10 (settings/notifications/dashboard home), then the audit section 12.
+
+**On the charts library:** The prompt specifies Recharts because it is the most compatible with React without a heavy external charting dependency. If you want more professional candlestick charts, replace Recharts with Lightweight Charts by TradingView — it is free and open source and renders exactly like professional trading platforms. Just add a note in the prompt: "Use TradingView Lightweight Charts library for all OHLCV candlestick rendering."
+
+**On the Learning AI agent prompt:** The prompt includes the exact system prompt for the DeepSeek-powered Learning AI meta-agent. This is the most critical part to get right — it needs to produce structured JSON with specific, implementable suggestions, not vague advice.
