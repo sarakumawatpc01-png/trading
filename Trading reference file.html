@@ -1,0 +1,904 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ORACLE v4.0 | Complete System Dashboard</title>
+    <style>
+        :root {
+            --bg-dark: #0a0f1c;
+            --bg-card: #151e32;
+            --bg-panel: #1f2d4a;
+            --text-primary: #e8eef7;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-blue-light: #60a5fa;
+            --accent-green: #10b981;
+            --accent-green-light: #34d399;
+            --accent-red: #ef4444;
+            --accent-red-light: #f87171;
+            --accent-gold: #f59e0b;
+            --accent-gold-light: #fbbf24;
+            --accent-purple: #8b5cf6;
+            --oracle-blue: #1F4E78;
+            --border: #2d3f5e;
+            --shadow: 0 4px 20px rgba(0,0,0,0.4);
+            --radius: 12px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        
+        body { background: var(--bg-dark); color: var(--text-primary); min-height: 100vh; padding-bottom: 80px; }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-blue); }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--oracle-blue), var(--bg-card));
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .logo { font-size: 26px; font-weight: 900; background: linear-gradient(90deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 2px; }
+        .logo span { color: var(--text-primary); -webkit-text-fill-color: var(--text-primary); }
+        .live-badge { background: var(--accent-green); color: #000; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .live-dot { width: 8px; height: 8px; background: #000; border-radius: 50%; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .stat-box { background: rgba(255,255,255,0.05); padding: 12px 8px; border-radius: 8px; text-align: center; border: 1px solid var(--border); }
+        .stat-value { font-size: 18px; font-weight: 800; color: var(--accent-blue-light); }
+        .stat-label { font-size: 9px; color: var(--text-secondary); text-transform: uppercase; margin-top: 4px; }
+
+        /* Navigation */
+        nav { background: var(--bg-card); border-bottom: 1px solid var(--border); position: sticky; top: 130px; z-index: 99; overflow-x: auto; }
+        .nav-container { display: flex; gap: 5px; padding: 10px 20px; }
+        .nav-btn { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-secondary); padding: 10px 20px; border-radius: 25px; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: all 0.3s; }
+        .nav-btn:hover { border-color: var(--accent-blue); }
+        .nav-btn.active { background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); color: white; border-color: var(--accent-blue); box-shadow: 0 0 15px rgba(59, 130, 246, 0.4); }
+
+        /* Main Content */
+        .container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+        .section { display: none; animation: fadeIn 0.4s ease; }
+        .section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Cards */
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; box-shadow: var(--shadow); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 10px; }
+        .card-title { font-size: 16px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+        .card-subtitle { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+        /* LIVE SETUPS SECTION STYLES */
+        .setup-queue { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0; }
+        .setup-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px; transition: all 0.3s; }
+        .setup-card.approved { border-left: 4px solid var(--accent-green); background: rgba(16, 185, 129, 0.05); }
+        .setup-card.monitoring { border-left: 4px solid var(--accent-gold); background: rgba(245, 158, 11, 0.05); }
+        .setup-card.rejected { border-left: 4px solid var(--accent-red); background: rgba(239, 68, 68, 0.05); opacity: 0.8; }
+        
+        .setup-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .setup-instrument { font-weight: 700; font-size: 16px; }
+        .setup-status { font-size: 10px; padding: 3px 8px; border-radius: 4px; font-weight: 700; }
+        .status-approved { background: var(--accent-green); color: #000; }
+        .status-monitoring { background: var(--accent-gold); color: #000; }
+        .status-rejected { background: var(--accent-red); color: #fff; }
+        
+        .setup-details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; font-size: 12px; }
+        .setup-detail-item { background: var(--bg-dark); padding: 8px; border-radius: 6px; }
+        .setup-detail-label { color: var(--text-muted); font-size: 10px; margin-bottom: 2px; }
+        .setup-detail-value { font-weight: 600; }
+        
+        .setup-reason { font-size: 11px; color: var(--text-secondary); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+        .setup-score { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+        .score-bar { flex: 1; height: 6px; background: var(--bg-dark); border-radius: 3px; margin: 0 10px; overflow: hidden; }
+        .score-fill { height: 100%; border-radius: 3px; }
+
+        /* Pipeline */
+        .pipeline { display: flex; flex-direction: column; gap: 15px; margin: 20px 0; }
+        .stage { display: flex; align-items: center; gap: 15px; padding: 15px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; transition: all 0.3s; }
+        .stage.active { border-color: var(--accent-blue); box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+        .stage.completed { border-color: var(--accent-green); }
+        .stage-num { width: 40px; height: 40px; background: var(--bg-dark); border: 2px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; flex-shrink: 0; }
+        .stage.active .stage-num { background: var(--accent-blue); border-color: var(--accent-blue); color: white; }
+        .stage.completed .stage-num { background: var(--accent-green); border-color: var(--accent-green); color: #000; }
+        .stage-info { flex: 1; }
+        .stage-name { font-weight: 700; margin-bottom: 4px; }
+        .stage-desc { font-size: 11px; color: var(--text-secondary); }
+
+        /* AGENT GRID */
+        .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; margin: 20px 0; }
+        .agent-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px; text-align: center; transition: all 0.3s; cursor: pointer; position: relative; overflow: hidden; }
+        .agent-card:hover { border-color: var(--accent-blue); transform: translateY(-4px); box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+        .agent-card.layer-1 { border-top: 4px solid var(--accent-blue); }
+        .agent-card.layer-2 { border-top: 4px solid var(--accent-green); }
+        .agent-card.layer-3 { border-top: 4px solid var(--accent-gold); }
+        .agent-card.support { border-top: 4px solid var(--accent-purple); }
+        .agent-card.pre-filter { border-top: 4px solid var(--accent-red); background: linear-gradient(145deg, var(--bg-panel), #2a1f1f); }
+        
+        .agent-id { font-size: 16px; font-weight: 800; color: var(--accent-blue-light); margin-bottom: 4px; }
+        .agent-card.pre-filter .agent-id { color: var(--accent-red-light); }
+        .agent-name { font-size: 11px; color: var(--text-secondary); line-height: 1.3; margin-bottom: 10px; height: 32px; overflow: hidden; }
+        .agent-status { font-size: 9px; padding: 3px 8px; border-radius: 4px; display: inline-block; }
+        .agent-status.idle { background: var(--bg-dark); color: var(--text-secondary); }
+        .agent-status.processing { background: var(--accent-blue); color: white; animation: pulse 1s infinite; }
+        .agent-status.complete { background: var(--accent-green); color: #000; }
+        
+        .agent-model { font-size: 9px; color: var(--text-muted); margin-top: 8px; font-style: italic; }
+
+        /* AGENT DETAIL VIEW */
+        .detail-view { display: none; }
+        .detail-view.active { display: block; }
+        
+        .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .back-btn { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-secondary); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+        .back-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+        
+        .detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .detail-stat { background: var(--bg-panel); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid var(--border); }
+        .detail-stat-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 5px; }
+        .detail-stat-value { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+        .detail-stat-value.highlight { color: var(--accent-green-light); }
+        .detail-stat-value.cost { color: var(--accent-gold-light); }
+        
+        .detail-content { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        .detail-panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 15px; }
+        .panel-title { font-size: 14px; font-weight: 700; margin-bottom: 15px; color: var(--text-primary); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        
+        .log-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .log-table th { text-align: left; color: var(--text-secondary); padding: 8px; border-bottom: 1px solid var(--border); }
+        .log-table td { padding: 8px; border-bottom: 1px solid var(--bg-dark); color: var(--text-secondary); }
+        .log-table tr:hover { background: rgba(59, 130, 246, 0.05); }
+        
+        .code-block { background: var(--bg-dark); padding: 15px; border-radius: 6px; font-family: 'Consolas', monospace; font-size: 11px; color: var(--accent-green-light); overflow-x: auto; border: 1px solid var(--border); }
+        .checklist { list-style: none; }
+        .checklist li { padding: 8px 0; border-bottom: 1px solid var(--bg-dark); font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+        .checklist li:before { content: '✓'; color: var(--accent-green); font-weight: bold; }
+
+        /* Tables */
+        .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 800px; }
+        th { text-align: left; color: var(--text-secondary); padding: 12px 15px; border-bottom: 2px solid var(--border); background: var(--bg-panel); font-weight: 600; }
+        td { padding: 14px 15px; border-bottom: 1px solid var(--bg-panel); }
+        tr:hover { background: rgba(59, 130, 246, 0.05); }
+        .badge { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; display: inline-block; }
+        .badge-win { background: rgba(16, 185, 129, 0.2); color: var(--accent-green-light); }
+        .badge-loss { background: rgba(239, 68, 68, 0.2); color: var(--accent-red-light); }
+
+        /* Signal Card */
+        .signal-card { background: linear-gradient(145deg, var(--bg-card), var(--bg-panel)); border: 1px solid var(--oracle-blue); border-radius: var(--radius); padding: 20px; }
+        .signal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
+        .signal-action { font-size: 24px; font-weight: 900; padding: 8px 16px; border-radius: 8px; }
+        .action-short { background: rgba(239, 68, 68, 0.2); color: var(--accent-red-light); border: 1px solid var(--accent-red); }
+        .action-long { background: rgba(16, 185, 129, 0.2); color: var(--accent-green-light); border: 1px solid var(--accent-green); }
+        .signal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; }
+        .signal-box { background: var(--bg-dark); padding: 12px; border-radius: 8px; border-left: 3px solid var(--border); }
+        .signal-box.entry { border-left-color: var(--accent-blue); }
+        .signal-box.sl { border-left-color: var(--accent-red); }
+        .signal-box.tp { border-left-color: var(--accent-green); }
+        .signal-box.rr { border-left-color: var(--accent-gold); }
+        .signal-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; }
+        .signal-value { font-size: 16px; font-weight: 700; margin-top: 4px; }
+
+        /* Buttons */
+        .btn { background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); color: white; border: none; padding: 12px 30px; border-radius: 25px; font-size: 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.3s; margin: 10px 5px; }
+        .btn:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+        .btn.reset { background: var(--bg-panel); border: 1px solid var(--border); }
+        
+        /* Progress */
+        .progress-container { margin: 20px 0; }
+        .progress-bar { width: 100%; height: 8px; background: var(--bg-panel); border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); border-radius: 4px; transition: width 0.3s; }
+
+        /* Legend */
+        .legend { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; margin: 20px 0; padding: 15px; background: var(--bg-panel); border-radius: 8px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
+        .legend-color { width: 12px; height: 12px; border-radius: 3px; }
+
+        /* Bottom Nav */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-card); border-top: 1px solid var(--border); padding: 10px; display: flex; justify-content: space-around; z-index: 100; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 10px; cursor: pointer; padding: 8px 12px; border-radius: 8px; }
+        .nav-item.active { color: var(--accent-blue-light); background: rgba(59, 130, 246, 0.15); }
+        .nav-icon { font-size: 20px; }
+
+        /* Toast */
+        .toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent-green); color: #000; padding: 12px 24px; border-radius: 25px; font-size: 13px; font-weight: 600; opacity: 0; transition: all 0.4s; z-index: 200; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .logo { font-size: 22px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .signal-grid { grid-template-columns: 1fr; }
+            .agent-grid { grid-template-columns: repeat(2, 1fr); }
+            .stage { flex-direction: column; align-items: flex-start; }
+            .stage-num { margin-bottom: 10px; }
+            .detail-content { grid-template-columns: 1fr; }
+            .header-top { flex-direction: column; align-items: flex-start; }
+            nav { top: 180px; }
+            .setup-queue { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="header-top">
+            <div class="logo">ORACLE <span>v4.0</span></div>
+            <div class="live-badge"><div class="live-dot"></div> SYSTEM LIVE</div>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-box"><div class="stat-value" id="stat-winrate">78.4%</div><div class="stat-label">System Win Rate</div></div>
+            <div class="stat-box"><div class="stat-value" id="stat-signals">847</div><div class="stat-label">Total Signals</div></div>
+            <div class="stat-box"><div class="stat-value" id="stat-agents">23</div><div class="stat-label">Active Agents</div></div>
+            <div class="stat-box"><div class="stat-value" id="stat-latency">24ms</div><div class="stat-label">Latency</div></div>
+        </div>
+    </header>
+
+    <!-- Top Navigation -->
+    <nav>
+        <div class="nav-container">
+            <button class="nav-btn" onclick="showSection('setups')">🎯 Setups</button>
+            <button class="nav-btn" onclick="showSection('orchestration')">🔮 Orchestration</button>
+            <button class="nav-btn active" onclick="showSection('agents')">🤖 Agents</button>
+            <button class="nav-btn" onclick="showSection('history')">📜 History</button>
+            <button class="nav-btn" onclick="showSection('performance')">📈 Performance</button>
+            <button class="nav-btn" onclick="showSection('universe')">🌐 Universe</button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container">
+
+        <!-- LIVE SETUPS SECTION -->
+        <div id="setups" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">🎯 Live Trade Setups</div>
+                        <div class="card-subtitle">Real-time approval queue (Chapter 22)</div>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-secondary);">
+                        Updated: <span id="update-time">Just now</span>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                    <div class="stat-box" style="border-color: var(--accent-green);"><div class="stat-value" style="color: var(--accent-green-light)" id="count-approved">3</div><div class="stat-label">✅ Approved (Ready)</div></div>
+                    <div class="stat-box" style="border-color: var(--accent-gold);"><div class="stat-value" style="color: var(--accent-gold-light)" id="count-monitoring">5</div><div class="stat-label">⏳ Monitoring (Wait)</div></div>
+                    <div class="stat-box" style="border-color: var(--accent-red);"><div class="stat-value" style="color: var(--accent-red-light)" id="count-rejected">12</div><div class="stat-label">❌ Rejected (Skip)</div></div>
+                </div>
+
+                <div class="setup-queue" id="setup-queue">
+                    <!-- Injected via JS -->
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><div class="card-title">📋 Approval Criteria (Chapter 21)</div></div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                    <div style="background: var(--bg-dark); padding: 15px; border-radius: 8px; border-left: 3px solid var(--accent-green);">
+                        <div style="font-weight: 700; color: var(--accent-green-light); margin-bottom: 5px;">✅ APPROVED</div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">Score 15-21 (Exceptional)<br>Universal Alignment<br>R:R ≥ 1:2<br>All 6 Outputs Agree</div>
+                    </div>
+                    <div style="background: var(--bg-dark); padding: 15px; border-radius: 8px; border-left: 3px solid var(--accent-gold);">
+                        <div style="font-weight: 700; color: var(--accent-gold-light); margin-bottom: 5px;">⏳ MONITORING</div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">Score 12-14 (High)<br>Waiting for Confirmation<br>Entry Zone Not Hit<br>Crowd Data Pending</div>
+                    </div>
+                    <div style="background: var(--bg-dark); padding: 15px; border-radius: 8px; border-left: 3px solid var(--accent-red);">
+                        <div style="font-weight: 700; color: var(--accent-red-light); margin-bottom: 5px;">❌ REJECTED</div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">Score < 12<br>Methodology Conflict<br>R:R < 1:2 (A8 Veto)<br>Crowd Kills Trade</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ORCHESTRATION SECTION -->
+        <div id="orchestration" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">⚡ 7-Stage Pipeline Orchestration</div>
+                        <div class="card-subtitle">Watch the system process a signal in real-time</div>
+                    </div>
+                    <div>
+                        <button class="btn" onclick="startSimulation()">▶️ Start Demo</button>
+                        <button class="btn reset" onclick="resetSimulation()">🔄 Reset</button>
+                    </div>
+                </div>
+
+                <div class="progress-container">
+                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:8px;">
+                        <span>Pipeline Progress</span><span id="progress-text">0%</span>
+                    </div>
+                    <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width: 0%;"></div></div>
+                </div>
+
+                <div class="pipeline" id="pipeline">
+                    <!-- Injected via JS -->
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><div class="card-title">🤖 23 Specialist Agents (Live Status)</div></div>
+                <div class="agent-grid" id="agent-grid-orchestration">
+                    <!-- Injected via JS -->
+                </div>
+                <div class="legend">
+                    <div class="legend-item"><div class="legend-color" style="background:var(--accent-blue)"></div>Layer 1 -- Context</div>
+                    <div class="legend-item"><div class="legend-color" style="background:var(--accent-green)"></div>Layer 2 -- Entry</div>
+                    <div class="legend-item"><div class="legend-color" style="background:var(--accent-gold)"></div>Layer 3 -- Risk</div>
+                    <div class="legend-item"><div class="legend-color" style="background:var(--accent-purple)"></div>Support Layer</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><div class="card-title">📱 Final Signal Card</div></div>
+                <div class="signal-card">
+                    <div class="signal-header">
+                        <div>
+                            <div style="font-size:12px;color:var(--text-secondary);">SIGNAL #472</div>
+                            <div style="font-weight:800;font-size:18px;">NIFTY 50</div>
+                        </div>
+                        <div class="signal-action action-short" id="signal-action">🔴 SELL</div>
+                    </div>
+                    <div class="signal-grid">
+                        <div class="signal-box entry"><div class="signal-label">Entry Zone</div><div class="signal-value" id="entry">24,450 – 24,465</div></div>
+                        <div class="signal-box sl"><div class="signal-label">Stop Loss</div><div class="signal-value" style="color:var(--accent-red-light)" id="sl">24,512</div></div>
+                        <div class="signal-box tp"><div class="signal-label">TP1</div><div class="signal-value" style="color:var(--accent-green-light)" id="tp1">24,380</div></div>
+                        <div class="signal-box rr"><div class="signal-label">R:R Ratio</div><div class="signal-value" style="color:var(--accent-gold-light)" id="rr">1:2.4</div></div>
+                    </div>
+                    <div style="margin-top:15px;padding:12px;background:var(--bg-dark);border-radius:8px;border-left:3px solid var(--accent-purple);">
+                        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">🧠 GRAND SYNTHESIS</div>
+                        <div style="font-size:13px;font-weight:700;color:var(--accent-green-light);">✅ EXCEPTIONAL -- Universal Alignment</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AGENTS SECTION -->
+        <div id="agents" class="section active">
+            
+            <!-- AGENT GRID VIEW -->
+            <div id="agent-grid-view" class="detail-view active">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">🤖 23 Specialist Agents + Pre-Filter</div>
+                            <div class="card-subtitle">Click any agent to view detailed stats, logs, and configuration</div>
+                        </div>
+                    </div>
+                    <div class="agent-grid" id="agent-grid-container">
+                        <!-- Injected via JS -->
+                    </div>
+                    <div class="legend" style="display:flex;flex-wrap:wrap;gap:15px;justify-content:center;margin-top:20px;padding:15px;background:var(--bg-panel);border-radius:8px;">
+                        <div class="legend-item" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent-blue)"></div>Layer 1 -- Context</div>
+                        <div class="legend-item" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent-green)"></div>Layer 2 -- Entry</div>
+                        <div class="legend-item" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent-gold)"></div>Layer 3 -- Risk</div>
+                        <div class="legend-item" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent-purple)"></div>Support Layer</div>
+                        <div class="legend-item" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent-red)"></div>Python Pre-Filter</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AGENT DETAIL VIEW -->
+            <div id="agent-detail-view" class="detail-view">
+                <div class="card">
+                    <div class="detail-header">
+                        <div>
+                            <div class="card-title" id="detail-title">Agent A1</div>
+                            <div class="card-subtitle" id="detail-subtitle">Market Structure Analysis</div>
+                        </div>
+                        <button class="back-btn" onclick="backToGrid()">← Back to Grid</button>
+                    </div>
+
+                    <div class="detail-stats" id="detail-stats-container">
+                        <!-- Injected via JS -->
+                    </div>
+
+                    <div class="detail-content">
+                        <div class="detail-panel">
+                            <div class="panel-title">📜 Recent Task Logs</div>
+                            <table class="log-table">
+                                <thead><tr><th>Time</th><th>Task</th><th>Output</th><th>Status</th></tr></thead>
+                                <tbody id="detail-logs-body">
+                                    <!-- Injected via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="detail-panel">
+                            <div class="panel-title" id="detail-config-title">⚙️ Configuration</div>
+                            <div id="detail-config-content">
+                                <!-- Injected via JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- HISTORY SECTION -->
+        <div id="history" class="section">
+            <div class="card">
+                <div class="card-header"><div class="card-title">🛡️ Signal Truth Engine</div><div class="card-subtitle">Tracking all signals (traded or skipped)</div></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-bottom:20px;">
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-green-light)">74.5%</div><div class="stat-label">System Accuracy (All)</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-gold-light)">62.5%</div><div class="stat-label">Your Accuracy (Taken)</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-red-light)">+387 pts</div><div class="stat-label">Gap (Skipped Wins)</div></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title">📜 Past Trade History</div></div>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Signal #</th><th>Instrument</th><th>Type</th><th>Action</th><th>Outcome</th><th>P&L</th><th>Date</th></tr></thead>
+                        <tbody id="history-table-body">
+                            <!-- Injected via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- PERFORMANCE SECTION -->
+        <div id="performance" class="section">
+            <div class="card">
+                <div class="card-header"><div class="card-title">📈 System Performance Metrics</div></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin-bottom:20px;">
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-green-light)">2.34</div><div class="stat-label">Profit Factor</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-blue-light)">1.82</div><div class="stat-label">Sharpe Ratio</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-red-light)">-12.8%</div><div class="stat-label">Max Drawdown</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-gold-light)">1:2.1</div><div class="stat-label">Avg R:R</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UNIVERSE SECTION -->
+        <div id="universe" class="section">
+            <div class="card">
+                <div class="card-header"><div class="card-title">🌐 A23 Market Intelligence Scanner</div><div class="card-subtitle">5-Tier Dynamic Stock Universe</div></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-bottom:20px;">
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-red-light)">19</div><div class="stat-label">Tier 1 (Full Pipeline)</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-gold-light)">80</div><div class="stat-label">Tier 2 (Active Scan)</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-blue-light)">200</div><div class="stat-label">Tier 3 (Daily Radar)</div></div>
+                    <div class="stat-box"><div class="stat-value" style="color:var(--accent-purple)">5,000</div><div class="stat-label">Tier 5 (Wildcard)</div></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Bottom Navigation -->
+    <div class="bottom-nav">
+        <div class="nav-item" onclick="showSection('setups')">
+            <div class="nav-icon">🎯</div>
+            <div>Setups</div>
+        </div>
+        <div class="nav-item" onclick="showSection('orchestration')">
+            <div class="nav-icon">🔮</div>
+            <div>Orchestration</div>
+        </div>
+        <div class="nav-item active" onclick="showSection('agents')">
+            <div class="nav-icon">🤖</div>
+            <div>Agents</div>
+        </div>
+        <div class="nav-item" onclick="showSection('history')">
+            <div class="nav-icon">📜</div>
+            <div>History</div>
+        </div>
+        <div class="nav-item" onclick="showSection('performance')">
+            <div class="nav-icon">📈</div>
+            <div>Performance</div>
+        </div>
+        <div class="nav-item" onclick="showSection('universe')">
+            <div class="nav-icon">🌐</div>
+            <div>Universe</div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast">✅ Demo started!</div>
+
+    <script>
+        // === DATA FROM MASTER PLAN v4.0 ===
+        const agents = [
+            { id: 'A0', name: 'Pre-Filter (Python)', layer: 'pre-filter', model: 'Python Script', job: '8 Mathematical Checks', cost: '₹0.00', accuracy: '99.5%', weight: 'N/A', type: 'system', checks: ['Market Regime Gate', 'Session Window', 'Price Proximity', 'Volume Anomaly', 'Candle Formation', 'MTF Alignment', 'Cooldown Timer', 'Final Score ≥ 7'] },
+            { id: 'A1', name: 'Market Structure', layer: 'layer-1', model: 'Claude Sonnet 4.6', job: 'HTF trend, BOS, CHoCH', cost: '₹0.42', accuracy: '84.2%', weight: '1.74', type: 'agent' },
+            { id: 'A2', name: 'Key Level', layer: 'layer-1', model: 'Gemini 2.5 Flash', job: 'S/R zones, FVG, OB', cost: '₹0.08', accuracy: '79.8%', weight: '1.21', type: 'agent' },
+            { id: 'A3', name: 'Liquidity', layer: 'layer-1', model: 'Gemini 2.5 Flash', job: 'SSL/BSL, stop clusters', cost: '₹0.08', accuracy: '81.5%', weight: '1.61', type: 'agent' },
+            { id: 'A13', name: 'Market Regime Gate', layer: 'layer-1', model: 'DeepSeek V3.2', job: 'Trending/Ranging/Avoid', cost: '₹0.17', accuracy: '86.9%', weight: '1.88', type: 'agent' },
+            { id: 'A4', name: 'MTF Confluence', layer: 'layer-2', model: 'DeepSeek V3.2', job: '4 TF alignment', cost: '₹0.17', accuracy: '77.3%', weight: '1.45', type: 'agent' },
+            { id: 'A5', name: 'Pattern Recognition', layer: 'layer-2', model: 'Gemini 2.5 Flash', job: 'Candlestick patterns', cost: '₹0.08', accuracy: '72.1%', weight: '0.89', type: 'agent' },
+            { id: 'A6', name: 'Indicator Confluence', layer: 'layer-2', model: 'Mistral Nemo', job: 'RS, Volume', cost: '₹0.01', accuracy: '65.4%', weight: '0.58', type: 'agent' },
+            { id: 'A7', name: 'Order Flow', layer: 'layer-2', model: 'DeepSeek V3.2', job: 'Absorption detection', cost: '₹0.17', accuracy: '82.7%', weight: '1.68', type: 'agent' },
+            { id: 'A8', name: 'Risk/Reward', layer: 'layer-3', model: 'Mistral Nemo', job: 'SL/TP, R:R ≥ 1:2', cost: '₹0.01', accuracy: '91.2%', weight: '1.92', type: 'agent' },
+            { id: 'A9', name: 'News & Sentiment', layer: 'layer-3', model: 'Gemini 2.5 Flash', job: 'Calendar, FII, news', cost: '₹0.08', accuracy: '76.5%', weight: '1.15', type: 'agent' },
+            { id: 'A10', name: 'Session Timing', layer: 'layer-3', model: 'Mistral Nemo', job: 'Time window quality', cost: '₹0.01', accuracy: '88.3%', weight: '1.34', type: 'agent' },
+            { id: 'A11', name: 'Position Sizing', layer: 'support', model: 'Mistral Nemo', job: 'Kelly Criterion lots', cost: '₹0.01', accuracy: '94.1%', weight: '1.56', type: 'agent' },
+            { id: 'A12', name: 'Trade Management', layer: 'support', model: 'Gemini 2.5 Flash', job: 'Position monitoring', cost: '₹0.08', accuracy: '79.2%', weight: '1.23', type: 'agent' },
+            { id: 'A14', name: 'Performance Analytics', layer: 'support', model: 'Gemini 2.5 Flash', job: 'Signal DB, reporting', cost: '₹0.08', accuracy: '99.1%', weight: '1.02', type: 'agent' },
+            { id: 'A15', name: 'Pre-Market Report', layer: 'support', model: 'DeepSeek V3.2', job: '8:45 AM daily brief', cost: '₹0.17', accuracy: '81.4%', weight: '1.18', type: 'agent' },
+            { id: 'A16', name: 'Options Chain', layer: 'support', model: 'GPT-5 Mini', job: 'PCR, Max Pain, OI', cost: '₹0.09', accuracy: '78.6%', weight: '1.15', type: 'agent' },
+            { id: 'A17', name: 'MiroFish Retail', layer: 'support', model: 'Gemini Flash-Lite x2000', job: '2000 agent simulation', cost: '₹1.25', accuracy: '74.8%', weight: '1.42', type: 'agent' },
+            { id: 'A18', name: 'Institutional Flow', layer: 'support', model: 'DeepSeek V3.2', job: 'Delta, gamma, FII', cost: '₹0.17', accuracy: '80.3%', weight: '1.38', type: 'agent' },
+            { id: 'A19', name: "Devil's Advocate", layer: 'support', model: 'Claude Sonnet 4.6', job: 'Adversarial challenge', cost: '₹0.42', accuracy: '83.7%', weight: '1.32', type: 'agent' },
+            { id: 'A20', name: 'India Macro', layer: 'support', model: 'DeepSeek V3.2', job: 'RBI, rupee, FII', cost: '₹0.17', accuracy: '77.9%', weight: '1.21', type: 'agent' },
+            { id: 'A21', name: 'Sector Rotation', layer: 'support', model: 'Gemini 2.5 Flash', job: 'Sector money flow', cost: '₹0.08', accuracy: '75.2%', weight: '1.08', type: 'agent' },
+            { id: 'A22', name: 'Expiry Mechanics', layer: 'support', model: 'DeepSeek V3.2', job: 'Expiry-week dynamics', cost: '₹0.17', accuracy: '82.4%', weight: '1.29', type: 'agent' },
+            { id: 'A23', name: 'Market Intelligence', layer: 'support', model: 'Gemini 2.5 Flash', job: '5000 stocks watchdog', cost: '₹0.08', accuracy: '79.1%', weight: '1.35', type: 'agent' }
+        ];
+
+        const stages = [
+            { id: 1, name: 'Pre-Filter', desc: '8 checks, Zero AI cost' },
+            { id: 2, name: '23 Agents', desc: 'Parallel analysis, 30-60s' },
+            { id: 3, name: 'Brain AI', desc: 'Claude Sonnet 4.6 synthesis' },
+            { id: 4, name: 'MiroFish', desc: '2,000 retail agents' },
+            { id: 5, name: 'Council', desc: '100 master traders' },
+            { id: 6, name: 'Synthesis', desc: '6 outputs combined' },
+            { id: 7, name: 'Alert', desc: 'Telegram signal' }
+        ];
+
+        // LIVE SETUPS DATA (Chapter 22 & 21)
+        const setups = [
+            { id: 472, instrument: 'NIFTY 50', type: 'INTRADAY', action: 'SELL', status: 'approved', score: 17, pattern: 'Universal Alignment', entry: '24,450-24,465', sl: '24,512', tp: '24,380', rr: '1:2.4', reason: 'All 6 outputs agree. Crowd amplifies. R:R > 1:2.' },
+            { id: 473, instrument: 'BANKNIFTY', type: 'INTRADAY', action: 'BUY', status: 'approved', score: 16, pattern: 'Structural Purity', entry: '44,200-44,250', sl: '44,150', tp: '44,400', rr: '1:3.0', reason: 'Pure institutional structure. No crowd dependency.' },
+            { id: 474, instrument: 'RELIANCE', type: 'SWING', action: 'BUY', status: 'approved', score: 15, pattern: 'Universal Alignment', entry: '2,880-2,890', sl: '2,850', tp: '2,950', rr: '1:2.3', reason: 'FII block deal detected. A23 promoted to Tier 1.' },
+            { id: 475, instrument: 'TATA MOTORS', type: 'INTRADAY', action: 'SELL', status: 'monitoring', score: 13, pattern: 'Crowd-Dependent', entry: 'Wait for bounce', sl: 'TBD', tp: 'TBD', rr: 'TBD', reason: 'Waiting for FOMO bounce to 885. Entry zone not hit yet.' },
+            { id: 476, instrument: 'INFY', type: 'SWING', action: 'BUY', status: 'monitoring', score: 12, pattern: 'High Confidence', entry: '1,450-1,460', sl: '1,430', tp: '1,500', rr: '1:2.5', reason: 'Council divided (65/100). Waiting for Expert Consensus.' },
+            { id: 477, instrument: 'HDFC BANK', type: 'INTRADAY', action: 'SELL', status: 'rejected', score: 8, pattern: 'Methodology Conflict', entry: 'N/A', sl: 'N/A', tp: 'N/A', rr: 'N/A', reason: 'Brain AI says SHORT, Council says LONG. Skip conflict.' },
+            { id: 478, instrument: 'ICICI BANK', type: 'INTRADAY', action: 'BUY', status: 'rejected', score: 6, pattern: 'R:R Failed', entry: 'N/A', sl: 'N/A', tp: 'N/A', rr: '1:1.1', reason: 'A8 Veto: R:R below 1:2 minimum. Risk not justified.' },
+            { id: 479, instrument: 'ZOMATO', type: 'SWING', action: 'SELL', status: 'rejected', score: 9, pattern: 'Crowd Kills', entry: 'N/A', sl: 'N/A', tp: 'N/A', rr: 'N/A', reason: '86% retail already long. No buyers left. Exhausted trade.' }
+        ];
+
+        const historyData = [
+            { id: 472, instrument: 'NIFTY 50', type: 'INTRADAY', action: 'SELL', outcome: 'WIN', pnl: '+142 pts', date: 'Today' },
+            { id: 471, instrument: 'BANKNIFTY', type: 'INTRADAY', action: 'BUY', outcome: 'WIN', pnl: '+89 pts', date: 'Today' },
+            { id: 470, instrument: 'HDFC BANK', type: 'SWING', action: 'SELL', outcome: 'LOSS', pnl: '-34 pts', date: 'Yesterday' },
+            { id: 469, instrument: 'NIFTY 50', type: 'INTRADAY', action: 'BUY', outcome: 'WIN', pnl: '+156 pts', date: 'Yesterday' },
+            { id: 468, instrument: 'TATA STEEL', type: 'SWING', action: 'BUY', outcome: 'WIN', pnl: '+67 pts', date: 'Yesterday' }
+        ];
+
+        // === RENDER FUNCTIONS ===
+        function renderSetups() {
+            const queue = document.getElementById('setup-queue');
+            const approved = setups.filter(s => s.status === 'approved');
+            const monitoring = setups.filter(s => s.status === 'monitoring');
+            const rejected = setups.filter(s => s.status === 'rejected');
+
+            document.getElementById('count-approved').innerText = approved.length;
+            document.getElementById('count-monitoring').innerText = monitoring.length;
+            document.getElementById('count-rejected').innerText = rejected.length;
+
+            queue.innerHTML = [...approved, ...monitoring, ...rejected].map(s => `
+                <div class="setup-card ${s.status}">
+                    <div class="setup-header">
+                        <div>
+                            <div class="setup-instrument">${s.instrument}</div>
+                            <div style="font-size:10px;color:var(--text-secondary)">${s.type} • ${s.action}</div>
+                        </div>
+                        <div class="setup-status status-${s.status}">${s.status.toUpperCase()}</div>
+                    </div>
+                    
+                    ${s.status === 'approved' || s.status === 'monitoring' ? `
+                    <div class="setup-details">
+                        <div class="setup-detail-item"><div class="setup-detail-label">Entry</div><div class="setup-detail-value">${s.entry}</div></div>
+                        <div class="setup-detail-item"><div class="setup-detail-label">SL</div><div class="setup-detail-value" style="color:var(--accent-red-light)">${s.sl}</div></div>
+                        <div class="setup-detail-item"><div class="setup-detail-label">TP</div><div class="setup-detail-value" style="color:var(--accent-green-light)">${s.tp}</div></div>
+                        <div class="setup-detail-item"><div class="setup-detail-label">R:R</div><div class="setup-detail-value" style="color:var(--accent-gold-light)">${s.rr}</div></div>
+                    </div>
+                    ` : ''}
+
+                    <div class="setup-score">
+                        <div style="font-size:11px;color:var(--text-secondary)">Score: ${s.score}/21</div>
+                        <div class="score-bar"><div class="score-fill" style="width:${(s.score/21)*100}%;background:${getScoreColor(s.score)}"></div></div>
+                        <div style="font-size:11px;color:var(--text-secondary)">${s.pattern}</div>
+                    </div>
+                    
+                    <div class="setup-reason">
+                        <strong>Reason:</strong> ${s.reason}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderPipeline() {
+            document.getElementById('pipeline').innerHTML = stages.map(s => `
+                <div class="stage" id="stage-${s.id}">
+                    <div class="stage-num">${s.id}</div>
+                    <div class="stage-info">
+                        <div class="stage-name">${s.name}</div>
+                        <div class="stage-desc">${s.desc}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderOrchestrationAgents() {
+            document.getElementById('agent-grid-orchestration').innerHTML = agents.slice(1).map(a => `
+                <div class="agent-card ${a.layer}" id="orch-status-${a.id}">
+                    <div class="agent-id">${a.id}</div>
+                    <div class="agent-name">${a.name}</div>
+                    <div class="agent-status idle" id="orch-status-${a.id}">IDLE</div>
+                    <div class="agent-model">${a.model}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderAgentGrid() {
+            const container = document.getElementById('agent-grid-container');
+            container.innerHTML = agents.map(a => `
+                <div class="agent-card ${a.layer}" onclick="openAgentDetail('${a.id}')">
+                    <div class="agent-id">${a.id}</div>
+                    <div class="agent-name">${a.name}</div>
+                    <div class="agent-status idle" id="grid-status-${a.id}">IDLE</div>
+                    <div class="agent-model">${a.model}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderHistory() {
+            document.getElementById('history-table-body').innerHTML = historyData.map(h => `
+                <tr>
+                    <td>#${h.id}</td>
+                    <td>${h.instrument}</td>
+                    <td>${h.type}</td>
+                    <td style="color:${h.action === 'BUY' ? 'var(--accent-green-light)' : 'var(--accent-red-light)'}">${h.action}</td>
+                    <td><span class="badge ${h.outcome === 'WIN' ? 'badge-win' : 'badge-loss'}">${h.outcome}</span></td>
+                    <td style="color:${h.pnl.includes('+') ? 'var(--accent-green-light)' : 'var(--accent-red-light)'}">${h.pnl}</td>
+                    <td>${h.date}</td>
+                </tr>
+            `).join('');
+        }
+
+        function getScoreColor(score) {
+            if(score >= 15) return 'var(--accent-green)';
+            if(score >= 12) return 'var(--accent-gold)';
+            return 'var(--accent-red)';
+        }
+
+        function generateLogs(agent) {
+            const logs = [];
+            const now = new Date();
+            for(let i=0; i<5; i++) {
+                const time = new Date(now.getTime() - i*15*60000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                let task = 'Analysis';
+                let output = 'Neutral';
+                let status = 'Complete';
+                
+                if(agent.id === 'A0') {
+                    task = 'Tick Scan';
+                    output = i === 0 ? 'FIRE (Score 11)' : 'IGNORE (Score 3)';
+                } else if(agent.id === 'A1') {
+                    task = 'HTF Structure';
+                    output = i === 0 ? 'BEARISH (BOS)' : 'BULLISH';
+                } else if(agent.id === 'A8') {
+                    task = 'R:R Calc';
+                    output = i === 0 ? '1:2.4 ✅' : '1:1.5 ❌';
+                    status = i === 0 ? 'Complete' : 'Rejected';
+                } else {
+                    task = agent.job.split(',')[0];
+                    output = i === 0 ? 'Signal + ' : 'Signal - ';
+                }
+                
+                logs.push({ time, task, output, status });
+            }
+            return logs;
+        }
+
+        function openAgentDetail(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            if(!agent) return;
+
+            // Populate Header
+            document.getElementById('detail-title').innerText = `${agent.id} -- ${agent.name}`;
+            document.getElementById('detail-subtitle').innerText = agent.job;
+
+            // Populate Stats
+            let statsHtml = `
+                <div class="detail-stat"><div class="detail-stat-label">AI Model</div><div class="detail-stat-value" style="font-size:14px">${agent.model}</div></div>
+                <div class="detail-stat"><div class="detail-stat-label">Cost/Analysis</div><div class="detail-stat-value cost">${agent.cost}</div></div>
+                <div class="detail-stat"><div class="detail-stat-label">Accuracy</div><div class="detail-stat-value highlight">${agent.accuracy}</div></div>
+                <div class="detail-stat"><div class="detail-stat-label">Darwinian Weight</div><div class="detail-stat-value">${agent.weight}</div></div>
+            `;
+            document.getElementById('detail-stats-container').innerHTML = statsHtml;
+
+            // Populate Logs
+            const logs = generateLogs(agent);
+            document.getElementById('detail-logs-body').innerHTML = logs.map(l => `
+                <tr>
+                    <td>${l.time}</td>
+                    <td>${l.task}</td>
+                    <td style="color:${l.output.includes('✅') || l.output.includes('FIRE') || l.output.includes('+') ? 'var(--accent-green-light)' : 'var(--text-secondary)'}">${l.output}</td>
+                    <td><span class="agent-status ${l.status === 'Complete' ? 'complete' : 'idle'}" style="font-size:8px">${l.status}</span></td>
+                </tr>
+            `).join('');
+
+            // Populate Config (Special for Pre-Filter)
+            const configContainer = document.getElementById('detail-config-content');
+            const configTitle = document.getElementById('detail-config-title');
+            
+            if(agent.id === 'A0') {
+                configTitle.innerText = '🐍 Python Pre-Filter Logic';
+                configContainer.innerHTML = `
+                    <div class="code-block" style="margin-bottom:15px">def pre_filter_tick(tick):<br>  if vix > 25: return AVOID<br>  if not valid_session(): return IGNORE<br>  if not near_key_level(): return IGNORE<br>  if volume < 1.8x_avg: return IGNORE<br>  score = calculate_score()<br>  return FIRE if score >= 7 else IGNORE</div>
+                    <div class="panel-title" style="font-size:12px;margin-top:10px">✅ 8 Mathematical Checks</div>
+                    <ul class="checklist">
+                        ${agent.checks.map(c => `<li>${c}</li>`).join('')}
+                    </ul>
+                `;
+            } else {
+                configTitle.innerText = '⚙️ Agent Configuration';
+                configContainer.innerHTML = `
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px"><strong>Layer:</strong> ${agent.layer.replace('-', ' ').toUpperCase()}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px"><strong>Primary Job:</strong> ${agent.job}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px"><strong>Input:</strong> Pre-Filter Context Package</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px"><strong>Output:</strong> Structured JSON Report</div>
+                    <div style="font-size:12px;color:var(--text-secondary);"><strong>Evolution:</strong> Weight updated every Sunday based on accuracy</div>
+                `;
+            }
+
+            // Switch View
+            document.getElementById('agent-grid-view').classList.remove('active');
+            document.getElementById('agent-detail-view').classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function backToGrid() {
+            document.getElementById('agent-detail-view').classList.remove('active');
+            document.getElementById('agent-grid-view').classList.add('active');
+        }
+
+        // === SIMULATION ===
+        let simulationRunning = false;
+
+        function startSimulation() {
+            if(simulationRunning) return;
+            simulationRunning = true;
+            showToast('🚀 Orchestration simulation started!');
+
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 2;
+                document.getElementById('progress-fill').style.width = progress + '%';
+                document.getElementById('progress-text').innerText = progress + '%';
+
+                const currentStage = Math.ceil(progress / 14.28);
+
+                stages.forEach(s => {
+                    const el = document.getElementById(`stage-${s.id}`);
+                    el.classList.remove('active', 'completed');
+                    if(s.id < currentStage) el.classList.add('completed');
+                    else if(s.id === currentStage) el.classList.add('active');
+                });
+
+                // Animate agents during Stage 2
+                if(currentStage === 2 && progress < 30) {
+                    agents.slice(1).forEach((a, i) => {
+                        setTimeout(() => {
+                            const status = document.getElementById(`orch-status-${a.id}`);
+                            if(status) {
+                                status.innerText = 'PROCESSING';
+                                status.classList.remove('idle');
+                                status.classList.add('processing');
+                            }
+                        }, i * 30);
+                    });
+                }
+
+                if(progress >= 100) {
+                    clearInterval(interval);
+                    simulationRunning = false;
+                    showToast('✅ Signal fired to Telegram!');
+                    
+                    // Reset agent statuses after delay
+                    setTimeout(() => {
+                        agents.slice(1).forEach(a => {
+                            const status = document.getElementById(`orch-status-${a.id}`);
+                            if(status) {
+                                status.innerText = 'IDLE';
+                                status.className = 'agent-status idle';
+                            }
+                        });
+                    }, 2000);
+                }
+            }, 100);
+        }
+
+        function resetSimulation() {
+            simulationRunning = false;
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-text').innerText = '0%';
+            stages.forEach(s => {
+                const el = document.getElementById(`stage-${s.id}`);
+                el.classList.remove('active', 'completed');
+            });
+            agents.slice(1).forEach(a => {
+                const status = document.getElementById(`orch-status-${a.id}`);
+                if(status) {
+                    status.innerText = 'IDLE';
+                    status.className = 'agent-status idle';
+                }
+            });
+            showToast('🔄 Simulation reset');
+        }
+
+        // === NAVIGATION & UTILITIES ===
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(sectionId).classList.add('active');
+            
+            // Update Top Nav
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            const topNavBtns = document.querySelectorAll('.nav-btn');
+            if(sectionId === 'setups') { topNavBtns[0].classList.add('active'); }
+            if(sectionId === 'orchestration') { topNavBtns[1].classList.add('active'); }
+            if(sectionId === 'agents') { topNavBtns[2].classList.add('active'); }
+            if(sectionId === 'history') { topNavBtns[3].classList.add('active'); }
+            if(sectionId === 'performance') { topNavBtns[4].classList.add('active'); }
+            if(sectionId === 'universe') { topNavBtns[5].classList.add('active'); }
+
+            // Update Bottom Nav
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            const bottomNavItems = document.querySelectorAll('.nav-item');
+            if(sectionId === 'setups') { bottomNavItems[0].classList.add('active'); }
+            if(sectionId === 'orchestration') { bottomNavItems[1].classList.add('active'); }
+            if(sectionId === 'agents') { bottomNavItems[2].classList.add('active'); }
+            if(sectionId === 'history') { bottomNavItems[3].classList.add('active'); }
+            if(sectionId === 'performance') { bottomNavItems[4].classList.add('active'); }
+            if(sectionId === 'universe') { bottomNavItems[5].classList.add('active'); }
+
+            // Reset agent view if leaving agents tab
+            if(sectionId !== 'agents') {
+                document.getElementById('agent-detail-view').classList.remove('active');
+                document.getElementById('agent-grid-view').classList.add('active');
+            }
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function simulateLive() {
+            setInterval(() => {
+                document.getElementById('stat-latency').innerText = Math.floor(Math.random() * 20 + 15) + 'ms';
+                document.getElementById('update-time').innerText = 'Just now';
+                
+                // Randomly update an agent status in grid
+                const randomAgent = agents[Math.floor(Math.random() * agents.length)];
+                const statusEl = document.getElementById(`grid-status-${randomAgent.id}`);
+                if(statusEl) {
+                    const statuses = ['idle', 'processing', 'complete'];
+                    const status = statuses[Math.floor(Math.random() * statuses.length)];
+                    statusEl.innerText = status.toUpperCase();
+                    statusEl.className = `agent-status ${status}`;
+                }
+            }, 2000);
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        // Initialize
+        renderSetups();
+        renderPipeline();
+        renderOrchestrationAgents();
+        renderAgentGrid();
+        renderHistory();
+        simulateLive();
+    </script>
+</body>
+</html>
