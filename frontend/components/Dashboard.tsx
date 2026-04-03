@@ -184,7 +184,7 @@ export default function Dashboard() {
 
   const load = async () => {
     setLoading(true);
-    const [s1, s2, s3, s4, c, trades, portfolio, audits, risks, regimes, contributions, effectiveness, agentList] = await Promise.all([
+    const [setupsData, signalsData, logsData, agentOutputsData, configData, trades, portfolio, audits, risks, regimes, contributions, effectiveness, agentList] = await Promise.all([
       apiGet<Setup[]>('/setups'),
       apiGet<Signal[]>('/signals'),
       apiGet<Log[]>('/logs'),
@@ -207,11 +207,11 @@ export default function Dashboard() {
       apiGet<SignalEffectivenessMetric[]>(`/admin/signal-effectiveness?symbol=${encodeURIComponent(manualSymbol)}`).catch(() => []),
       apiGet<string[]>('/agents').catch(() => [])
     ]);
-    setSetups(s1);
-    setSignals(s2);
-    setLogs(s3);
-    setAgentOutputs(s4);
-    setConfig(c);
+    setSetups(setupsData);
+    setSignals(signalsData);
+    setLogs(logsData);
+    setAgentOutputs(agentOutputsData);
+    setConfig(configData);
     setPaperTrades(trades);
     setPaperPortfolio(portfolio);
     setDecisionAudits(audits);
@@ -220,20 +220,20 @@ export default function Dashboard() {
     setAgentContribution(contributions);
     setSignalEffectiveness(effectiveness);
     setAgentNames(agentList);
-    setInstruction(c.brainInstructions || '');
+    setInstruction(configData.brainInstructions || '');
     setConfigDraft({
-      minSymbolWinRateForTake: c.minSymbolWinRateForTake ?? DEFAULT_WIN_RATE_GATE,
-      setupConfidenceDecayHours: c.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS,
-      autoShutdownDrawdownPercent: c.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
+      minSymbolWinRateForTake: configData.minSymbolWinRateForTake ?? DEFAULT_WIN_RATE_GATE,
+      setupConfidenceDecayHours: configData.setupConfidenceDecayHours ?? DEFAULT_CONFIDENCE_DECAY_HOURS,
+      autoShutdownDrawdownPercent: configData.autoShutdownDrawdownPercent ?? DEFAULT_DRAWDOWN_SHUTDOWN_PERCENT
     });
-    const buckets = c.watchlistBuckets || {};
+    const buckets = configData.watchlistBuckets || {};
     setWatchlistDraft({
       oneSecond: (buckets.oneSecond?.symbols || []).join(', '),
       tradeOneSecond: (buckets.tradeOneSecond?.symbols || []).join(', '),
       fiveSecond: (buckets.fiveSecond?.symbols || []).join(', '),
       sixtySecond: (buckets.sixtySecond?.symbols || []).join(', ')
     });
-    const analytics = c.optionAnalytics || {};
+    const analytics = configData.optionAnalytics || {};
     setAnalyticsDraft({
       strikesAroundAtm: analytics.strikesAroundAtm ?? 10,
       expiries: analytics.expiries ?? 'all',
@@ -241,7 +241,7 @@ export default function Dashboard() {
       includeAllAnalytics: analytics.includeAllAnalytics ?? true,
       priorityOrder: (analytics.priorityOrder || DEFAULT_PRIORITY_ORDER).join(', ')
     });
-    const broker = c.brokerConfig || {};
+    const broker = configData.brokerConfig || {};
     setBrokerDraft({
       provider: broker.provider || 'zerodha-kite',
       environment: broker.environment || 'prod',
@@ -251,7 +251,7 @@ export default function Dashboard() {
       accessTokenEnv: broker.accessTokenEnv || 'KITE_ACCESS_TOKEN'
     });
 
-    const symbols = [...new Set(s1.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
+    const symbols = [...new Set(setupsData.map((setup) => setup.symbol))].slice(0, MAX_SYMBOL_METRICS);
     const metricsRows = await Promise.all(
       symbols.map(async (symbol) => [symbol, await apiGet<SymbolMetric>(`/metrics/${encodeURIComponent(symbol)}`)] as const)
     );
@@ -765,22 +765,22 @@ export default function Dashboard() {
                     {REAL_TRADING_KEY}: {String(config[REAL_TRADING_KEY] ?? false)}
                   </button>
                   <div className="grid gap-2">
-                    <label className="text-xs">Provider</label>
-                    <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.provider} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, provider: event.target.value }))} />
-                    <label className="text-xs">Environment</label>
-                    <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.environment} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, environment: event.target.value }))} />
-                    <label className="text-xs">Kite API key env variable</label>
-                    <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.apiKeyEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, apiKeyEnv: event.target.value }))} />
-                    <label className="text-xs">Kite API secret env variable</label>
-                    <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.apiSecretEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, apiSecretEnv: event.target.value }))} />
-                    <label className="text-xs">Kite redirect URL env variable</label>
-                    <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.redirectUrlEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, redirectUrlEnv: event.target.value }))} />
-                    <label className="text-xs">Kite access token env variable</label>
-                    <input className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.accessTokenEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, accessTokenEnv: event.target.value }))} />
+                    <label className="text-xs" htmlFor="broker-provider">Provider</label>
+                    <input id="broker-provider" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.provider} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, provider: event.target.value }))} />
+                    <label className="text-xs" htmlFor="broker-environment">Environment</label>
+                    <input id="broker-environment" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.environment} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, environment: event.target.value }))} />
+                    <label className="text-xs" htmlFor="broker-api-key-env">API key env variable name</label>
+                    <input id="broker-api-key-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.apiKeyEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, apiKeyEnv: event.target.value }))} placeholder="Example: KITE_API_KEY (env var name only)" />
+                    <label className="text-xs" htmlFor="broker-api-secret-env">API secret env variable name</label>
+                    <input id="broker-api-secret-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.apiSecretEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, apiSecretEnv: event.target.value }))} placeholder="Example: KITE_API_SECRET (env var name only)" />
+                    <label className="text-xs" htmlFor="broker-redirect-env">Redirect URL env variable name</label>
+                    <input id="broker-redirect-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.redirectUrlEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, redirectUrlEnv: event.target.value }))} placeholder="Example: KITE_REDIRECT_URL (env var name only)" />
+                    <label className="text-xs" htmlFor="broker-access-token-env">Access token env variable name</label>
+                    <input id="broker-access-token-env" className="w-full px-3 py-2 rounded bg-slate-800 border border-slate-600" value={brokerDraft.accessTokenEnv} onChange={(event) => setBrokerDraft((prev) => ({ ...prev, accessTokenEnv: event.target.value }))} placeholder="Example: KITE_ACCESS_TOKEN (env var name only)" />
                     <button className="px-4 py-2 rounded bg-indigo-500" onClick={async () => runAction(async () => {
                       await apiPatch('/admin/config', { brokerConfig: brokerDraft });
                       await load();
-                    }, 'Broker config saved.', 'Failed to save broker config.')}>Save Zerodha Kite Setup</button>
+                    }, 'Broker config saved.', 'Failed to save broker config.')}>Save Broker Configuration</button>
                   </div>
                 </div>
               <div className="space-y-2">
@@ -887,7 +887,7 @@ export default function Dashboard() {
                     {agent.status.toUpperCase()}
                   </span>
                 </div>
-                <div className="text-xs text-slate-300 mt-1">Weight: {agent.weight.toFixed(2)} · outputs: {agent.count}</div>
+                <div className="text-xs text-slate-300 mt-1">Weight: {agent.weight.toFixed(2)} · Output count: {agent.count}</div>
                 <div className="text-xs text-slate-400 mt-2">{agent.latestSummary}</div>
                 {agent.latestScore !== undefined && agent.latestScore !== null && (
                   <div className="text-xs mt-2">Latest score: {agent.latestScore.toFixed(2)}</div>
