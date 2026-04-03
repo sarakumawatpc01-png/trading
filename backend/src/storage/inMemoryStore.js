@@ -58,7 +58,8 @@ export class InMemoryStore {
     this.setupById = new Map();
     this.setupsBySymbol = new Map();
     this.agentOutputs = [];
-    this.agentSpecs = loadAgentSpecsFromFiles({ agents: AGENTS, specVersion: AGENT_SPEC_VERSION });
+    this.defaultAgentSpecs = loadAgentSpecsFromFiles({ agents: AGENTS, specVersion: AGENT_SPEC_VERSION });
+    this.agentSpecs = cloneJson(this.defaultAgentSpecs);
     this.outcomes = [];
     this.backtests = [];
     this.driftLogs = [];
@@ -256,7 +257,9 @@ export class InMemoryStore {
   }
 
   async listAgentSpecs() { return this.agentSpecs; }
+  async listDefaultAgentSpecs() { return this.defaultAgentSpecs; }
   async getAgentSpec(name) { return this.agentSpecs[name] || null; }
+  async getDefaultAgentSpec(name) { return this.defaultAgentSpecs[name] || null; }
   async patchAgentSpec(name, partial) {
     const current = this.agentSpecs[name] || { instruction: '', knowledge: '', skill: {} };
     const next = {
@@ -273,6 +276,15 @@ export class InMemoryStore {
       Object.entries(specs).map(async ([name, partial]) => [name, await this.patchAgentSpec(name, partial)])
     );
     return Object.fromEntries(nextEntries);
+  }
+  async resetAgentSpecToDefault(name) {
+    const defaultSpec = this.defaultAgentSpecs[name];
+    if (!defaultSpec) return null;
+    this.agentSpecs[name] = {
+      ...cloneJson(defaultSpec),
+      updatedAt: nowIstLocal()
+    };
+    return this.agentSpecs[name];
   }
 
   async addLog(log) {

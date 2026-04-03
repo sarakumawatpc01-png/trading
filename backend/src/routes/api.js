@@ -202,6 +202,12 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
     res.json(spec);
   });
 
+  router.get('/agents/:name/spec/default', async (req, res) => {
+    const spec = await store.getDefaultAgentSpec(req.params.name);
+    if (!spec) return res.status(404).json({ error: 'Default agent spec not found' });
+    res.json(spec);
+  });
+
   router.post('/agents/specs/bulk', async (req, res, next) => {
     try {
       const body = z.object({
@@ -226,6 +232,15 @@ export function createApiRouter({ store, pipeline, logger, ingestion, agents, py
       }).parse(req.body || {});
       const patched = await store.patchAgentSpec(req.params.name, body);
       await logger.log('info', 'Agent spec updated', { agent: req.params.name, keys: Object.keys(body) });
+      res.json(patched);
+    } catch (err) { next(err); }
+  });
+
+  router.post('/agents/:name/spec/reset-default', async (req, res, next) => {
+    try {
+      const patched = await store.resetAgentSpecToDefault(req.params.name);
+      if (!patched) return res.status(404).json({ error: 'Default agent spec not found' });
+      await logger.log('info', 'Agent spec reset to default', { agent: req.params.name });
       res.json(patched);
     } catch (err) { next(err); }
   });

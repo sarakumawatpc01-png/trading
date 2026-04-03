@@ -11,6 +11,12 @@ type KiteSettings = {
   lastSuccessfulConnection?: string | null;
 };
 
+type AgentSpec = {
+  instruction?: string;
+  knowledge?: string;
+  skill?: Record<string, unknown>;
+};
+
 export default function SettingsTab() {
   const [settings, setSettings] = useState<KiteSettings>({
     apiKey: '',
@@ -19,7 +25,7 @@ export default function SettingsTab() {
     autoRefresh: true
   });
   const [status, setStatus] = useState('');
-  const [subTab, setSubTab] = useState<'api' | 'agents' | 'universe' | 'prefilter' | 'session' | 'backtesting' | 'learning'>('api');
+  const [subTab, setSubTab] = useState<'api' | 'agents' | 'prompts' | 'universe' | 'prefilter' | 'session' | 'backtesting' | 'learning'>('api');
   const [adminConfig, setAdminConfig] = useState<Record<string, unknown>>({});
   const [agentList, setAgentList] = useState<string[]>([]);
   const [stocks, setStocks] = useState<Array<{ id: string; symbol: string }>>([]);
@@ -41,6 +47,8 @@ export default function SettingsTab() {
       pre_market_reports: true
     }
   });
+  const [agentPrompts, setAgentPrompts] = useState<Record<string, string>>({});
+  const [defaultAgentPrompts, setDefaultAgentPrompts] = useState<Record<string, string>>({});
 
   const renderPrefilterNumberInput = ({
     label,
@@ -80,7 +88,19 @@ export default function SettingsTab() {
       alertPreferences: row.alertPreferences || {}
     })).catch(() => {});
     apiGet<Record<string, unknown>>('/admin/config').then(setAdminConfig).catch(() => {});
-    apiGet<string[]>('/agents').then(setAgentList).catch(() => {});
+    apiGet<string[]>('/agents').then(async (rows) => {
+      setAgentList(rows);
+      const currentEntries = await Promise.all(rows.map(async (agent) => {
+        const spec = await apiGet<AgentSpec | null>(`/agents/${encodeURIComponent(agent)}/spec`).catch(() => null);
+        return [agent, String(spec?.instruction || '')] as const;
+      }));
+      setAgentPrompts(Object.fromEntries(currentEntries));
+      const defaultEntries = await Promise.all(rows.map(async (agent) => {
+        const spec = await apiGet<AgentSpec | null>(`/agents/${encodeURIComponent(agent)}/spec/default`).catch(() => null);
+        return [agent, String(spec?.instruction || '')] as const;
+      }));
+      setDefaultAgentPrompts(Object.fromEntries(defaultEntries));
+    }).catch(() => {});
     apiGet<Array<{ id: string; symbol: string }>>('/stocks').then(setStocks).catch(() => {});
   }, []);
 
@@ -90,6 +110,7 @@ export default function SettingsTab() {
         {[
           { key: 'api', label: 'API Configuration' },
           { key: 'agents', label: 'Agent Configuration' },
+          { key: 'prompts', label: 'Prompts' },
           { key: 'universe', label: 'Stock Universe' },
           { key: 'prefilter', label: 'Pre-Filter' },
           { key: 'session', label: 'Session Windows' },
@@ -261,6 +282,47 @@ export default function SettingsTab() {
               </details>
             ))}
           </div>
+        </section>
+      )}
+
+      {subTab === 'prompts' && (
+        <section className="oracle-card">
+          <h3 className="font-medium mb-2">Agent Prompts</h3>
+          <div className="text-xs text-oracle-text-secondary mb-3">View default prompts, customize active prompts, and reset any agent to its default prompt.</div>
+          <div className="space-y-3 max-h-[70vh] overflow-auto">
+            {agentList.map((agent) => (
+              <details key={`prompt-${agent}`} className="border border-oracle-border rounded p-3">
+                <summary className="cursor-pointer text-sm font-medium">{agent}</summary>
+                <div className="mt-2 grid gap-2">
+                  <label className="text-xs text-oracle-text-secondary">Current prompt</label>
+                  <textarea
+                    className="w-full min-h-[110px] px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border text-xs"
+                    value={agentPrompts[agent] || ''}
+                    onChange={(event) => setAgentPrompts((prev) => ({ ...prev, [agent]: event.target.value }))}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button className="px-3 py-1.5 rounded bg-oracle-blue text-black text-xs" onClick={async () => {
+                      await apiPatch(`/agents/${encodeURIComponent(agent)}/spec`, { instruction: agentPrompts[agent] || '' });
+                      setStatus(`${agent} prompt saved`);
+                    }}>Save custom prompt</button>
+                    <button className="px-3 py-1.5 rounded bg-oracle-gold text-black text-xs" onClick={async () => {
+                      const spec = await apiPost<AgentSpec>(`/agents/${encodeURIComponent(agent)}/spec/reset-default`, {});
+                      const defaultPrompt = String(spec.instruction || '');
+                      setAgentPrompts((prev) => ({ ...prev, [agent]: defaultPrompt }));
+                      setStatus(`${agent} reset to default prompt`);
+                    }}>Use default prompt</button>
+                  </div>
+                  <label className="text-xs text-oracle-text-secondary mt-1">Default prompt (read-only)</label>
+                  <textarea
+                    className="w-full min-h-[90px] px-2 py-1 rounded bg-oracle-tertiary border border-oracle-border text-xs opacity-90"
+                    value={defaultAgentPrompts[agent] || ''}
+                    readOnly
+                  />
+                </div>
+              </details>
+            ))}
+          </div>
+          <div className="text-xs text-oracle-text-secondary mt-2">{status}</div>
         </section>
       )}
 
